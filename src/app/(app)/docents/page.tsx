@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import Link from 'next/link'
 
 const ROLS_LABEL: Record<string, string> = {
   director: 'Director/a',
@@ -133,10 +134,11 @@ export default async function DocentsPage() {
                 [0]?.rol
 
               return (
-                <div
+                <Link
                   key={d.id}
-                  className="card flex items-center justify-between gap-3"
-                  style={{ opacity: estaAbsent ? 0.75 : 1 }}
+                  href={`/docents/${d.id}`}
+                  className="card flex items-center justify-between gap-3 hover:shadow-md transition-shadow"
+                  style={{ textDecoration: 'none', opacity: estaAbsent ? 0.8 : 1 }}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div
@@ -169,7 +171,7 @@ export default async function DocentsPage() {
                       </span>
                     ) : null}
                   </div>
-                </div>
+                </Link>
               )
             })}
           </div>

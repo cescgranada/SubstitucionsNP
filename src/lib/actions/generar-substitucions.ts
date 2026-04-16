@@ -360,6 +360,23 @@ export async function crearAbsencia(params: {
   // Si hi ha data_fi, forcem tot_el_dia = true
   const totElDia = params.dataFi && params.dataFi !== params.data ? true : params.totElDia
 
+  // Comprova que no hi ha absències que es solapin amb les dates indicades
+  const novaDataFi = params.dataFi ?? params.data
+  const { data: absenciesExistents } = await supabase
+    .from('absencies')
+    .select('id, data, data_fi')
+    .eq('docent_id', params.docentId)
+    .not('estat', 'in', '("rebutjada","cancel·lada")')
+
+  const seSolapa = absenciesExistents?.some(a => {
+    const existentFi = a.data_fi ?? a.data
+    return a.data <= novaDataFi && existentFi >= params.data
+  })
+
+  if (seSolapa) {
+    return { ok: false, error: 'Ja tens una absència registrada que es solapa amb les dates indicades.' }
+  }
+
   const estat = params.motiu === 'dia_personal' ? 'pendent' : 'aprovada'
 
   const { data: docentInfo } = await supabase
