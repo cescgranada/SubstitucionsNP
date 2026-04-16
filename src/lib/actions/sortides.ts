@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { reassignarSubstitucionsPendentsDia } from './generar-substitucions'
+import { enviarNotificacioResolucioSortida } from '@/lib/email'
 
 /**
  * Aprova o rebutja una sortida escolar.
@@ -27,6 +28,19 @@ export async function actualitzarEstatSortida(
   )
   if (!esGestor) return { ok: false, error: 'Sense permís per gestionar sortides' }
 
+  const [{ data: sortida }, { data: gestor }] = await Promise.all([
+    supabase
+      .from('sortides')
+      .select('descripcio, data, proposador:proposada_per(nom, email)')
+      .eq('id', sortidaId)
+      .single(),
+    supabase
+      .from('docents')
+      .select('nom')
+      .eq('id', docentGestorId)
+      .single(),
+  ])
+
   const { error } = await supabase
     .from('sortides')
     .update({
@@ -37,6 +51,19 @@ export async function actualitzarEstatSortida(
     .eq('id', sortidaId)
 
   if (error) return { ok: false, error: error.message }
+
+  // Notifica el proposador
+  const proposador = (sortida as any)?.proposador
+  if (sortida && gestor && proposador?.email) {
+    enviarNotificacioResolucioSortida({
+      emailProposador: proposador.email,
+      nomProposador: proposador.nom,
+      descripcio: sortida.descripcio,
+      data: sortida.data,
+      estat: nouEstat,
+      nomGestor: gestor.nom,
+    }).catch(console.error)
+  }
 
   if (nouEstat === 'aprovada') {
     const cascada = await reassignarSubstitucionsPendentsDia(sortidaId)

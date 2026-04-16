@@ -254,6 +254,52 @@ export async function enviarNotificacioCoordinador(params: {
 }
 
 /**
+ * Notifica al proposador d'una sortida que ha estat aprovada o rebutjada
+ */
+export async function enviarNotificacioResolucioSortida(params: {
+  emailProposador: string
+  nomProposador: string
+  descripcio: string
+  data: string
+  estat: 'aprovada' | 'rebutjada'
+  nomGestor: string
+}): Promise<void> {
+  if (!esConfigurat()) {
+    console.log('[email] Resend no configurat, saltant notificació a', params.emailProposador)
+    return
+  }
+
+  const dataFormatada = new Date(params.data + 'T12:00:00').toLocaleDateString('ca-ES', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  })
+
+  const aprovada = params.estat === 'aprovada'
+
+  const contingut = `
+    <p>Hola, <strong>${params.nomProposador}</strong>!</p>
+    <p>La sortida que vas proposar ha estat <strong>${aprovada ? 'aprovada' : 'rebutjada'}</strong> per ${params.nomGestor}.</p>
+    <div class="info-box">
+      <div class="info-row">
+        <span class="info-label">Sortida</span>
+        <span class="info-value">${params.descripcio}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Data</span>
+        <span class="info-value">${dataFormatada}</span>
+      </div>
+    </div>
+    ${aprovada ? '<p>Les substitucions dels grups participants ja han estat actualitzades automàticament.</p>' : '<p>Si tens dubtes, contacta amb la coordinació.</p>'}
+  `
+
+  await resend.emails.send({
+    from: FROM,
+    to: params.emailProposador,
+    subject: `Sortida ${aprovada ? 'aprovada' : 'rebutjada'} — ${params.descripcio}`,
+    html: htmlBase(contingut),
+  })
+}
+
+/**
  * Notifica al docent que la seva absència ha estat aprovada o rebutjada
  */
 export async function enviarNotificacioRessolucioAbsencia(params: {
