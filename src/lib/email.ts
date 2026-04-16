@@ -157,6 +157,52 @@ export async function enviarNotificacioAprovacioPendent(params: {
 }
 
 /**
+ * Notifica al substitut que la seva substitució ha estat cancel·lada
+ */
+export async function enviarNotificacioSubstitucioAnullada(params: {
+  emailSubstitut: string
+  nomSubstitut: string
+  nomDocentAbsent: string
+  data: string
+  horaInici: string
+  horaFi: string
+  grup?: string
+}): Promise<void> {
+  if (!esConfigurat()) {
+    console.log('[email] Resend no configurat, saltant notificació a', params.emailSubstitut)
+    return
+  }
+
+  const dataFormatada = new Date(params.data + 'T12:00:00').toLocaleDateString('ca-ES', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  })
+
+  const contingut = `
+    <p>Hola, <strong>${params.nomSubstitut}</strong>!</p>
+    <p>La substitució que tenies assignada ha estat <strong>cancel·lada</strong> perquè ${params.nomDocentAbsent} ha revocat la seva absència.</p>
+    <div class="info-box">
+      <div class="info-row">
+        <span class="info-label">Data</span>
+        <span class="info-value">${dataFormatada}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Franja</span>
+        <span class="info-value">${params.horaInici.slice(0, 5)} – ${params.horaFi.slice(0, 5)}</span>
+      </div>
+      ${params.grup ? `<div class="info-row"><span class="info-label">Grup</span><span class="info-value">${params.grup}</span></div>` : ''}
+    </div>
+    <p>No cal que facis cap acció. El teu horari torna a ser el normal per a aquesta franja.</p>
+  `
+
+  await resend.emails.send({
+    from: FROM,
+    to: params.emailSubstitut,
+    subject: `Substitució cancel·lada — ${dataFormatada}`,
+    html: htmlBase(contingut),
+  })
+}
+
+/**
  * Notifica al coordinador d'etapa (o director) que s'han generat substitucions automàticament
  */
 export async function enviarNotificacioCoordinador(params: {

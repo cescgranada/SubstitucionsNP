@@ -117,8 +117,8 @@ export default async function AbsenciesPage() {
                     {!a.tot_el_dia && a.hora_inici && ` · ${a.hora_inici.slice(0, 5)}–${a.hora_fi?.slice(0, 5)}`}
                   </p>
                 </div>
-                <span className={`badge badge-${a.estat}`}>
-                  {a.estat === 'pendent' ? 'Pendent' : a.estat === 'aprovada' ? 'Aprovada' : 'Rebutjada'}
+                <span className={`badge ${a.estat === 'cancel·lada' ? 'badge-cancel-lada' : `badge-${a.estat}`}`}>
+                  {a.estat === 'pendent' ? 'Pendent' : a.estat === 'aprovada' ? 'Aprovada' : a.estat === 'cancel·lada' ? 'Cancel·lada' : 'Rebutjada'}
                 </span>
               </Link>
             ))}

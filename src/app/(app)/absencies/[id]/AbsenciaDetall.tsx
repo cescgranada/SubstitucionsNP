@@ -2,12 +2,26 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { actualitzarEstatAbsencia } from '@/lib/actions/generar-substitucions'
+import { actualitzarEstatAbsencia, cancellarAbsencia } from '@/lib/actions/generar-substitucions'
 
 const MOTIUS: Record<string, string> = {
   medic: 'Mèdic',
   dia_personal: 'Dia personal',
   formacio: 'Formació',
+}
+
+const BADGE_ESTAT: Record<string, string> = {
+  pendent: 'badge-pendent',
+  aprovada: 'badge-aprovada',
+  rebutjada: 'badge-rebutjada',
+  'cancel·lada': 'badge-cancel-lada',
+}
+
+const TEXT_ESTAT: Record<string, string> = {
+  pendent: 'Pendent',
+  aprovada: 'Aprovada',
+  rebutjada: 'Rebutjada',
+  'cancel·lada': 'Cancel·lada',
 }
 
 function formatData(data: string, dataFi: string | null): string {
@@ -38,9 +52,15 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
   const router = useRouter()
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [confirmantCancel, setConfirmantCancel] = useState(false)
 
   const esPropietari = absencia.docent?.id === docentActualId
   const esMultiDia = absencia.data_fi && absencia.data_fi !== absencia.data
+
+  const avui = new Date().toISOString().split('T')[0]
+  const potCancel = esPropietari &&
+    ['pendent', 'aprovada'].includes(absencia.estat) &&
+    absencia.data >= avui
 
   const handleDecisio = async (nouEstat: 'aprovada' | 'rebutjada') => {
     setLoading(nouEstat)
@@ -53,6 +73,21 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
     }
     router.refresh()
     setLoading(null)
+  }
+
+  const handleCancel = async () => {
+    setLoading('cancel·lar')
+    setError('')
+    const result = await cancellarAbsencia(absencia.id, docentActualId)
+    if (!result.ok) {
+      setError(result.error ?? 'Error inesperat')
+      setLoading(null)
+      setConfirmantCancel(false)
+      return
+    }
+    router.refresh()
+    setLoading(null)
+    setConfirmantCancel(false)
   }
 
   // Agrupa substitucions per data si és multi-dia
@@ -84,8 +119,8 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
               {formatData(absencia.data, absencia.data_fi)}
             </p>
           </div>
-          <span className={`badge badge-${absencia.estat}`}>
-            {absencia.estat === 'pendent' ? 'Pendent' : absencia.estat === 'aprovada' ? 'Aprovada' : 'Rebutjada'}
+          <span className={`badge ${BADGE_ESTAT[absencia.estat] ?? 'badge-pendent'}`}>
+            {TEXT_ESTAT[absencia.estat] ?? absencia.estat}
           </span>
         </div>
 
@@ -125,32 +160,83 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
           )}
         </dl>
 
-        {/* Botons d'aprovació (dia personal pendent) */}
+        {error && (
+          <div className="mt-3 rounded-lg px-3 py-2 text-sm" style={{ backgroundColor: '#FEE2E2', color: '#991B1B' }}>
+            {error}
+          </div>
+        )}
+
+        {/* Botons d'aprovació (dia personal pendent, per a gestors) */}
         {esGestor && absencia.estat === 'pendent' && absencia.motiu === 'dia_personal' && (
-          <>
-            {error && (
-              <div className="mt-3 rounded-lg px-3 py-2 text-sm" style={{ backgroundColor: '#FEE2E2', color: '#991B1B' }}>
-                {error}
-              </div>
-            )}
-            <div className="flex gap-3 mt-5 pt-4 border-t" style={{ borderColor: 'var(--color-border)' }}>
+          <div className="flex gap-3 mt-5 pt-4 border-t" style={{ borderColor: 'var(--color-border)' }}>
+            <button
+              onClick={() => handleDecisio('rebutjada')}
+              disabled={!!loading}
+              className="btn-secondary flex-1"
+              style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+            >
+              {loading === 'rebutjada' ? 'Rebutjant...' : 'Rebutjar'}
+            </button>
+            <button
+              onClick={() => handleDecisio('aprovada')}
+              disabled={!!loading}
+              className="btn-primary flex-1"
+            >
+              {loading === 'aprovada' ? 'Aprovant...' : 'Aprovar'}
+            </button>
+          </div>
+        )}
+
+        {/* Botó cancel·lar (propietari, absència futura, no rebutjada/cancel·lada) */}
+        {potCancel && !confirmantCancel && (
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--color-border)' }}>
+            <button
+              onClick={() => setConfirmantCancel(true)}
+              className="text-sm font-medium"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              Cancel·lar aquesta absència
+            </button>
+          </div>
+        )}
+
+        {/* Confirmació cancel·lació */}
+        {confirmantCancel && (
+          <div
+            className="mt-4 pt-4 border-t space-y-3"
+            style={{ borderColor: 'var(--color-border)' }}
+          >
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+              {substitucions.length > 0
+                ? `Es cancel·laran ${substitucions.length} substitució${substitucions.length !== 1 ? 'ns' : ''} associada${substitucions.length !== 1 ? 'des' : ''} i els substituts seran notificats.`
+                : "Segur que vols cancel·lar aquesta absència?"}
+            </p>
+            <div className="flex gap-3">
               <button
-                onClick={() => handleDecisio('rebutjada')}
+                onClick={() => setConfirmantCancel(false)}
                 disabled={!!loading}
-                className="btn-secondary flex-1"
-                style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+                className="btn-secondary flex-1 text-sm"
+                style={{ padding: '8px 16px', minHeight: '36px' }}
               >
-                {loading === 'rebutjada' ? 'Rebutjant...' : 'Rebutjar'}
+                Enrere
               </button>
               <button
-                onClick={() => handleDecisio('aprovada')}
+                onClick={handleCancel}
                 disabled={!!loading}
-                className="btn-primary flex-1"
+                className="flex-1 text-sm rounded-lg font-medium"
+                style={{
+                  padding: '8px 16px',
+                  minHeight: '36px',
+                  backgroundColor: 'var(--color-danger)',
+                  color: 'white',
+                  border: 'none',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                }}
               >
-                {loading === 'aprovada' ? 'Aprovant...' : 'Aprovar'}
+                {loading === 'cancel·lar' ? 'Cancel·lant...' : 'Sí, cancel·lar'}
               </button>
             </div>
-          </>
+          </div>
         )}
       </div>
 

@@ -6,6 +6,7 @@ import {
   enviarNotificacioAprovacioPendent,
   enviarNotificacioRessolucioAbsencia,
   enviarNotificacioCoordinador,
+  enviarNotificacioSubstitucioAnullada,
 } from '@/lib/email'
 
 /**
@@ -72,6 +73,91 @@ async function proposaSubstitut(
   }
 
   return { substitutId: null, motiu: null }
+}
+
+/**
+ * Cancel·la una absència pròpia i les substitucions associades.
+ * Notifica els substituts afectats per email.
+ */
+export async function cancellarAbsencia(
+  absenciaId: string,
+  docentId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient()
+
+  // Verifica autenticació
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: 'No autenticat' }
+
+  const { data: docentAuth } = await supabase
+    .from('docents')
+    .select('id')
+    .eq('email', user.email!)
+    .single()
+
+  if (!docentAuth || docentAuth.id !== docentId) {
+    return { ok: false, error: 'Sense permís' }
+  }
+
+  // Carrega l'absència
+  const { data: absencia } = await supabase
+    .from('absencies')
+    .select('id, docent_id, data, data_fi, estat')
+    .eq('id', absenciaId)
+    .single()
+
+  if (!absencia) return { ok: false, error: 'Absència no trobada' }
+  if (absencia.docent_id !== docentId) return { ok: false, error: 'Sense permís' }
+  if (['rebutjada', 'cancel·lada'].includes(absencia.estat)) {
+    return { ok: false, error: 'Aquesta absència no es pot cancel·lar' }
+  }
+
+  // Carrega substitucions associades per notificar els substituts
+  const { data: substitucions } = await supabase
+    .from('substitucions')
+    .select(`
+      id, data, substitut_id,
+      substitut:substitut_id(nom, email),
+      horari_setmanal:horari_setmanal_id(
+        franja:franja_id(hora_inici, hora_fi),
+        grup:grup_id(nom)
+      )
+    `)
+    .eq('absencia_id', absenciaId)
+    .not('substitut_id', 'is', null)
+
+  const { data: docentInfo } = await supabase
+    .from('docents')
+    .select('nom')
+    .eq('id', docentId)
+    .single()
+
+  // Elimina les substitucions generades
+  await supabase.from('substitucions').delete().eq('absencia_id', absenciaId)
+
+  // Marca l'absència com a cancel·lada
+  const { error } = await supabase
+    .from('absencies')
+    .update({ estat: 'cancel·lada' })
+    .eq('id', absenciaId)
+
+  if (error) return { ok: false, error: error.message }
+
+  // Notifica els substituts afectats
+  for (const s of (substitucions ?? []) as any[]) {
+    if (!s.substitut?.email) continue
+    enviarNotificacioSubstitucioAnullada({
+      emailSubstitut: s.substitut.email,
+      nomSubstitut: s.substitut.nom,
+      nomDocentAbsent: docentInfo?.nom ?? '',
+      data: s.data,
+      horaInici: s.horari_setmanal?.franja?.hora_inici ?? '',
+      horaFi: s.horari_setmanal?.franja?.hora_fi ?? '',
+      grup: s.horari_setmanal?.grup?.nom,
+    }).catch(console.error)
+  }
+
+  return { ok: true }
 }
 
 /**

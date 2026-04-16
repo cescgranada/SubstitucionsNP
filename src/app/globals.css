@@ -136,6 +136,11 @@ body {
   color: var(--color-primary);
 }
 
+.badge-cancel-lada {
+  background-color: #F3F4F6;
+  color: #6B7280;
+}
+
 /* Inputs */
 input, textarea, select {
   border: 1.5px solid var(--color-border);
