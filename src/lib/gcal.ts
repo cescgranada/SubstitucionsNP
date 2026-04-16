@@ -29,6 +29,7 @@ export function gcalConfigurat(): boolean {
     process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
     process.env.GOOGLE_SERVICE_ACCOUNT_KEY &&
     process.env.GOOGLE_CALENDAR_ID &&
+    process.env.GOOGLE_IMPERSONATE_EMAIL &&
     process.env.GOOGLE_SERVICE_ACCOUNT_KEY !== 'xxx'
   )
 }
@@ -36,11 +37,13 @@ export function gcalConfigurat(): boolean {
 async function getAccessToken(): Promise<string> {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!
   const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY!.replace(/\\n/g, '\n')
+  const sub = process.env.GOOGLE_IMPERSONATE_EMAIL!
 
   const now = Math.floor(Date.now() / 1000)
   const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url')
   const claim = Buffer.from(JSON.stringify({
     iss: email,
+    sub,
     scope: SCOPE,
     aud: TOKEN_URL,
     exp: now + 3600,
