@@ -1,36 +1,137 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SubsCoop
 
-## Getting Started
+Aplicació web per gestionar les substitucions docents, absències i sortides escolars de l'Escola Cooperativa Nou Patufet (Barcelona).
 
-First, run the development server:
+**Stack**: Next.js 16 · TypeScript · Tailwind CSS v4 · Supabase · Vercel
+
+---
+
+## Posada en marxa
+
+### 1. Variables d'entorn
+
+Copia `.env.example` a `.env.local` i omple els valors:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+| Variable | On trobar-la |
+|----------|--------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase Dashboard → Settings → API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase Dashboard → Settings → API |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard → Settings → API |
+| `RESEND_API_KEY` | [resend.com](https://resend.com) (pla gratuït: 3.000 emails/mes) |
+| `RESEND_FROM` | `SubsCoop <noreply@noupatufet.coop>` (cal verificar el domini a Resend) |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> Les notificacions per correu funcionen sense `RESEND_API_KEY` (es registra un avís a la consola però no bloqueja cap operació).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+### 2. Base de dades Supabase
 
-To learn more about Next.js, take a look at the following resources:
+Executa els fitxers SQL en ordre al **SQL Editor** del Supabase Dashboard:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+supabase/migrations/001_schema.sql   ← taules + índexs
+supabase/migrations/002_seeds.sql    ← etapes, grups, 23 docents, rols
+supabase/migrations/003_rls.sql      ← Row Level Security
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+### 3. Carregar els horaris
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Col·loca el fitxer `horaris_normalitzats.json` (684 entrades) a la carpeta `data/` i executa:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run load-horaris
+```
+
+> Necessita `NEXT_PUBLIC_SUPABASE_URL` i `SUPABASE_SERVICE_ROLE_KEY` al `.env.local`.
+
+---
+
+### 4. Autenticació Google OAuth
+
+Al Supabase Dashboard → Authentication → Providers → Google:
+- Activa el provider Google
+- Afegeix com a **Redirect URL** autoritzada:
+  - Producció: `https://el-teu-domini.vercel.app/auth/callback`
+  - Local: `http://localhost:3000/auth/callback`
+
+---
+
+### 5. Desenvolupament local
+
+```bash
+npm install
+npm run dev
+```
+
+Obre [http://localhost:3000](http://localhost:3000).
+
+---
+
+### 6. Desplegament a Vercel
+
+```bash
+git push origin main
+```
+
+A Vercel:
+1. Connecta el repositori GitHub
+2. Afegeix les variables d'entorn (les mateixes que `.env.local`)
+3. Afegeix la URL de producció com a Redirect URL a Supabase
+
+---
+
+## Estructura del projecte
+
+```
+src/
+  app/
+    (app)/              ← rutes protegides (requereixen login)
+      page.tsx          ← dashboard principal
+      absencies/        ← comunicar i gestionar absències
+      substitucions/    ← confirmar i veure substitucions
+      sortides/         ← proposar i aprovar sortides
+      horari/           ← horari setmanal personal
+      perfil/           ← dades i estadístiques del docent
+    login/              ← pàgina de login Google OAuth
+    auth/               ← callback i signout
+  lib/
+    supabase/           ← clients server-side i client-side
+    actions/            ← Server Actions (absències, substitucions, sortides)
+    email.ts            ← notificacions via Resend
+    types.ts            ← tipus TypeScript del model de dades
+  components/
+    layout/             ← Sidebar (desktop) + BottomNav (mòbil)
+supabase/
+  migrations/           ← SQL: schema, seeds, RLS
+scripts/
+  load-horaris.ts       ← carrega horaris_normalitzats.json
+data/
+  horaris_normalitzats.json   ← (no inclòs al repo, afegir manualment)
+```
+
+---
+
+## Rols i permisos
+
+| Rol | Permisos |
+|-----|----------|
+| `docent` | Comunicar absències pròpies, veure horari i substitucions, proposar sortides |
+| `coordinacio_etapa` | + Aprovar/confirmar substitucions de la seva etapa, aprovar sortides |
+| `cap_personal` | + Aprovar dies personals |
+| `sotsdirector` / `director` | Accés complet |
+
+---
+
+## Regles de negoci principals
+
+- **Mèdic / Formació** → aprovació automàtica → es generen substitucions
+- **Dia personal** → pendent d'aprovació per cap de personal → es generen substitucions en aprovar
+- **Codocència**: si un docent falta, l'altre cobreix (no cal substitut extern)
+- **Desdoblament**: cal substitut
+- **Prioritat de substituts**: guàrdia > permanència > HNL (restringit a l'etapa del docent absent)

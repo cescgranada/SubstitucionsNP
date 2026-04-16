@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { confirmarSubstitucio, actualitzarFeinaSubstitut } from '@/lib/actions/substitucions'
 
 const MOTIUS: Record<string, string> = {
   medic: 'Mèdic',
@@ -28,12 +28,20 @@ interface Props {
   esDocentAbsent: boolean
 }
 
-export default function SubstitucioDetall({ substitucio, candidats, docentActualId, esGestor, esDocentAbsent }: Props) {
+export default function SubstitucioDetall({
+  substitucio,
+  candidats,
+  docentActualId,
+  esGestor,
+  esDocentAbsent,
+}: Props) {
   const router = useRouter()
-  const supabase = createClient()
 
   const [loading, setLoading] = useState(false)
-  const [substitutSeleccionat, setSubstitutSeleccionat] = useState<string>(substitucio.substitut_id ?? '')
+  const [errorMsg, setErrorMsg] = useState('')
+  const [substitutSeleccionat, setSubstitutSeleccionat] = useState<string>(
+    substitucio.substitut_id ?? ''
+  )
   const [feina, setFeina] = useState(substitucio.feina_substitut ?? '')
   const [editantFeina, setEditantFeina] = useState(false)
   const [feinaDraft, setFeinaDraft] = useState(substitucio.feina_substitut ?? '')
@@ -43,26 +51,35 @@ export default function SubstitucioDetall({ substitucio, candidats, docentActual
   const handleConfirmar = async () => {
     if (!substitutSeleccionat) return
     setLoading(true)
-    await supabase
-      .from('substitucions')
-      .update({
-        substitut_id: substitutSeleccionat,
-        estat: 'confirmada',
-        confirmat_per: docentActualId,
-        feina_substitut: feina || null,
-      })
-      .eq('id', substitucio.id)
+    setErrorMsg('')
+    const result = await confirmarSubstitucio({
+      substitucioId: substitucio.id,
+      substitutId: substitutSeleccionat,
+      feinaSubstitut: feina || undefined,
+      docentGestorId: docentActualId,
+    })
+    if (!result.ok) {
+      setErrorMsg(result.error ?? 'Error inesperat')
+      setLoading(false)
+      return
+    }
     router.push('/substitucions')
     router.refresh()
-    setLoading(false)
   }
 
   const handleDesarFeina = async () => {
     setLoading(true)
-    await supabase
-      .from('substitucions')
-      .update({ feina_substitut: feinaDraft || null })
-      .eq('id', substitucio.id)
+    setErrorMsg('')
+    const result = await actualitzarFeinaSubstitut({
+      substitucioId: substitucio.id,
+      feina: feinaDraft,
+      docentAbsentId: docentActualId,
+    })
+    if (!result.ok) {
+      setErrorMsg(result.error ?? 'Error inesperat')
+      setLoading(false)
+      return
+    }
     setFeina(feinaDraft)
     setEditantFeina(false)
     setLoading(false)
@@ -91,7 +108,11 @@ export default function SubstitucioDetall({ substitucio, candidats, docentActual
             </p>
           </div>
           <span className={`badge badge-${substitucio.estat}`}>
-            {substitucio.estat === 'pendent' ? 'Pendent' : substitucio.estat === 'proposta_ia' ? 'Proposta' : 'Confirmada'}
+            {substitucio.estat === 'pendent'
+              ? 'Pendent'
+              : substitucio.estat === 'proposta_ia'
+              ? 'Proposta'
+              : 'Confirmada'}
           </span>
         </div>
 
@@ -99,12 +120,15 @@ export default function SubstitucioDetall({ substitucio, candidats, docentActual
           <div className="flex justify-between">
             <dt style={{ color: 'var(--color-text-secondary)' }}>Franja</dt>
             <dd className="font-medium">
-              {substitucio.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{substitucio.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
+              {substitucio.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–
+              {substitucio.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
             </dd>
           </div>
           <div className="flex justify-between">
             <dt style={{ color: 'var(--color-text-secondary)' }}>Tipus</dt>
-            <dd className="font-medium">{TIPUS_HORARI[substitucio.horari_setmanal?.tipus] ?? substitucio.horari_setmanal?.tipus}</dd>
+            <dd className="font-medium">
+              {TIPUS_HORARI[substitucio.horari_setmanal?.tipus] ?? substitucio.horari_setmanal?.tipus}
+            </dd>
           </div>
           {substitucio.horari_setmanal?.grup?.nom && (
             <div className="flex justify-between">
@@ -151,13 +175,13 @@ export default function SubstitucioDetall({ substitucio, candidats, docentActual
         </dl>
       </div>
 
-      {/* Feina per al substitut — el docent absent la pot editar */}
+      {/* Feina per al substitut */}
       <div className="card">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
             Feina per al substitut/a
           </h2>
-          {esDocentAbsent && !editantFeina && (
+          {esDocentAbsent && !editantFeina && substitucio.estat !== 'confirmada' && (
             <button
               onClick={() => { setFeinaDraft(feina); setEditantFeina(true) }}
               className="text-xs font-medium"
@@ -202,7 +226,9 @@ export default function SubstitucioDetall({ substitucio, candidats, docentActual
           </p>
         ) : (
           <p className="text-sm italic" style={{ color: 'var(--color-text-secondary)' }}>
-            {esDocentAbsent ? 'Afegeix les instruccions per al substitut.' : 'Encara no s\'ha deixat feina.'}
+            {esDocentAbsent
+              ? 'Afegeix les instruccions per al substitut.'
+              : "Encara no s'ha deixat feina."}
           </p>
         )}
       </div>
@@ -227,8 +253,14 @@ export default function SubstitucioDetall({ substitucio, candidats, docentActual
                     onClick={() => setSubstitutSeleccionat(c.docent_id)}
                     className="w-full flex items-center justify-between px-4 py-3 rounded-lg border text-sm transition-colors"
                     style={{
-                      borderColor: substitutSeleccionat === c.docent_id ? 'var(--color-primary)' : 'var(--color-border)',
-                      backgroundColor: substitutSeleccionat === c.docent_id ? 'var(--color-primary-light)' : 'white',
+                      borderColor:
+                        substitutSeleccionat === c.docent_id
+                          ? 'var(--color-primary)'
+                          : 'var(--color-border)',
+                      backgroundColor:
+                        substitutSeleccionat === c.docent_id
+                          ? 'var(--color-primary-light)'
+                          : 'white',
                       color: 'var(--color-text)',
                     }}
                   >
@@ -242,8 +274,17 @@ export default function SubstitucioDetall({ substitucio, candidats, docentActual
             </>
           ) : (
             <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              No hi ha candidats prioritaris disponibles en aquesta franja per a l&apos;etapa.
+              No hi ha candidats prioritaris disponibles en aquesta franja.
             </p>
+          )}
+
+          {errorMsg && (
+            <div
+              className="rounded-lg px-3 py-2 text-sm"
+              style={{ backgroundColor: '#FEE2E2', color: '#991B1B' }}
+            >
+              {errorMsg}
+            </div>
           )}
 
           <button
@@ -262,7 +303,7 @@ export default function SubstitucioDetall({ substitucio, candidats, docentActual
           <h2 className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
             Substitut/a confirmat/da
           </h2>
-          <p className="text-sm font-medium" style={{ color: 'var(--color-success)' }}>
+          <p className="font-medium" style={{ color: 'var(--color-success)' }}>
             {substitucio.substitut.nom}
           </p>
           {substitucio.confirmador && (
@@ -273,7 +314,6 @@ export default function SubstitucioDetall({ substitucio, candidats, docentActual
         </div>
       )}
 
-      {/* El substitut confirmat veu el seu rol */}
       {esSubs && (
         <div
           className="card text-sm"

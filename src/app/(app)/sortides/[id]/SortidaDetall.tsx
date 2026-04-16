@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { actualitzarEstatSortida } from '@/lib/actions/sortides'
 
 interface Props {
   sortida: any
@@ -11,22 +11,20 @@ interface Props {
   esProposador: boolean
 }
 
-export default function SortidaDetall({ sortida, docentActualId, esGestor, esProposador }: Props) {
+export default function SortidaDetall({ sortida, docentActualId, esGestor }: Props) {
   const router = useRouter()
-  const supabase = createClient()
   const [loading, setLoading] = useState<string | null>(null)
-  const [observacions, setObservacions] = useState(sortida.observacions ?? '')
+  const [errorMsg, setErrorMsg] = useState('')
 
   const handleDecisio = async (nouEstat: 'aprovada' | 'rebutjada') => {
     setLoading(nouEstat)
-    await supabase
-      .from('sortides')
-      .update({
-        estat: nouEstat,
-        aprovada_per: docentActualId,
-        data_aprovacio: new Date().toISOString(),
-      })
-      .eq('id', sortida.id)
+    setErrorMsg('')
+    const result = await actualitzarEstatSortida(sortida.id, nouEstat, docentActualId)
+    if (!result.ok) {
+      setErrorMsg(result.error ?? 'Error inesperat')
+      setLoading(null)
+      return
+    }
     router.refresh()
     setLoading(null)
   }
@@ -43,6 +41,8 @@ export default function SortidaDetall({ sortida, docentActualId, esGestor, esPro
   const dataFormatada = new Date(sortida.data + 'T12:00:00').toLocaleDateString('ca-ES', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
+
+  const estatBadge = sortida.estat === 'proposta' ? 'pendent' : sortida.estat
 
   return (
     <div className="max-w-lg space-y-5">
@@ -63,7 +63,7 @@ export default function SortidaDetall({ sortida, docentActualId, esGestor, esPro
               Proposada per {sortida.proposador?.nom}
             </p>
           </div>
-          <span className={`badge badge-${sortida.estat === 'proposta' ? 'pendent' : sortida.estat} flex-shrink-0`}>
+          <span className={`badge badge-${estatBadge} flex-shrink-0`}>
             {sortida.estat === 'proposta' ? 'Proposta' : sortida.estat === 'aprovada' ? 'Aprovada' : 'Rebutjada'}
           </span>
         </div>
@@ -106,25 +106,35 @@ export default function SortidaDetall({ sortida, docentActualId, esGestor, esPro
           )}
         </dl>
 
-        {/* Botons d'aprovació (gestors) */}
+        {/* Botons d'aprovació */}
         {esGestor && sortida.estat === 'proposta' && (
-          <div className="flex gap-3 mt-5 pt-4 border-t" style={{ borderColor: 'var(--color-border)' }}>
-            <button
-              onClick={() => handleDecisio('rebutjada')}
-              disabled={!!loading}
-              className="btn-secondary flex-1"
-              style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
-            >
-              {loading === 'rebutjada' ? 'Rebutjant...' : 'Rebutjar'}
-            </button>
-            <button
-              onClick={() => handleDecisio('aprovada')}
-              disabled={!!loading}
-              className="btn-primary flex-1"
-            >
-              {loading === 'aprovada' ? 'Aprovant...' : 'Aprovar'}
-            </button>
-          </div>
+          <>
+            {errorMsg && (
+              <div
+                className="mt-3 rounded-lg px-3 py-2 text-sm"
+                style={{ backgroundColor: '#FEE2E2', color: '#991B1B' }}
+              >
+                {errorMsg}
+              </div>
+            )}
+            <div className="flex gap-3 mt-5 pt-4 border-t" style={{ borderColor: 'var(--color-border)' }}>
+              <button
+                onClick={() => handleDecisio('rebutjada')}
+                disabled={!!loading}
+                className="btn-secondary flex-1"
+                style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+              >
+                {loading === 'rebutjada' ? 'Rebutjant...' : 'Rebutjar'}
+              </button>
+              <button
+                onClick={() => handleDecisio('aprovada')}
+                disabled={!!loading}
+                className="btn-primary flex-1"
+              >
+                {loading === 'aprovada' ? 'Aprovant...' : 'Aprovar'}
+              </button>
+            </div>
+          </>
         )}
       </div>
 
@@ -142,7 +152,7 @@ export default function SortidaDetall({ sortida, docentActualId, esGestor, esPro
         </div>
       )}
 
-      {/* Efecte cascada: informació si aprovada */}
+      {/* Efecte cascada */}
       {sortida.estat === 'aprovada' && (
         <div
           className="card text-sm"

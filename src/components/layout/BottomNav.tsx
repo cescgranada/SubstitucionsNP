@@ -23,21 +23,20 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: '/horari',
+    label: 'Horari',
+    icon: (
+      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" />
+      </svg>
+    ),
+  },
+  {
     href: '/substitucions',
     label: 'Subst.',
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-      </svg>
-    ),
-  },
-  {
-    href: '/sortides',
-    label: 'Sortides',
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
       </svg>
     ),
   },
@@ -66,12 +65,13 @@ export default function BottomNav() {
     >
       <div className="flex items-center justify-around h-16">
         {NAV_ITEMS.map((item) => {
-          const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+          const isActive =
+            item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
           return (
             <Link
               key={item.href}
               href={item.href}
-              className="flex flex-col items-center gap-1 px-3 py-2 min-w-[44px] min-h-[44px] justify-center"
+              className="flex flex-col items-center gap-1 px-2 py-2 min-w-[44px] min-h-[44px] justify-center"
               style={{
                 color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
               }}
