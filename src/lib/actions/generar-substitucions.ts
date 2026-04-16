@@ -1,6 +1,11 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import {
+  enviarNotificacioSubstitut,
+  enviarNotificacioAprovacioPendent,
+  enviarNotificacioRessolucioAbsencia,
+} from '@/lib/email'
 
 /**
  * Converteix un dia de la setmana de Date.getDay() (0=diumenge) al format de la BD (1=dilluns..5=divendres)
@@ -105,8 +110,9 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
   const { data: horari } = await supabase
     .from('horari_setmanal')
     .select(`
-      id, tipus, tipus_parella, parella_docent_id,
-      franja:franja_id(id, hora_inici, hora_fi)
+      id, tipus, tipus_parella, parella_docent_id, materia, aula,
+      franja:franja_id(id, hora_inici, hora_fi),
+      grup:grup_id(nom)
     `)
     .eq('docent_id', absencia.docent_id)
     .eq('dia_setmana', diaNum)
@@ -174,6 +180,41 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
   if (substitucionsACrear.length > 0) {
     const { error } = await supabase.from('substitucions').insert(substitucionsACrear)
     if (error) return { ok: false, error: error.message }
+
+    // Notifica els substituts assignats (proposta_ia i confirmada)
+    const { data: docentAbsent } = await supabase
+      .from('docents')
+      .select('nom')
+      .eq('id', absencia.docent_id)
+      .single()
+
+    for (const s of substitucionsACrear) {
+      if (!s.substitut_id) continue
+
+      const { data: substitut } = await supabase
+        .from('docents')
+        .select('nom, email')
+        .eq('id', s.substitut_id)
+        .single()
+
+      // Dades de la franja per al correu
+      const horariEntry = horari?.find((h: any) => h.id === s.horari_setmanal_id) as any
+
+      if (substitut?.email) {
+        enviarNotificacioSubstitut({
+          emailSubstitut: substitut.email,
+          nomSubstitut: substitut.nom,
+          nomDocentAbsent: docentAbsent?.nom ?? '',
+          data: absencia.data,
+          horaInici: horariEntry?.franja?.hora_inici ?? '',
+          horaFi: horariEntry?.franja?.hora_fi ?? '',
+          grup: horariEntry?.grup?.nom,
+          materia: horariEntry?.materia ?? undefined,
+          aula: horariEntry?.aula ?? undefined,
+          feinaSubstitut: (s as any).feina_substitut ?? undefined,
+        }).catch(console.error)
+      }
+    }
   }
 
   return { ok: true }
@@ -209,6 +250,13 @@ export async function crearAbsencia(params: {
 
   const estat = params.motiu === 'dia_personal' ? 'pendent' : 'aprovada'
 
+  // Nom del docent per als correus
+  const { data: docentInfo } = await supabase
+    .from('docents')
+    .select('nom, email')
+    .eq('id', params.docentId)
+    .single()
+
   const { data: absencia, error } = await supabase
     .from('absencies')
     .insert({
@@ -226,12 +274,27 @@ export async function crearAbsencia(params: {
 
   if (error || !absencia) return { ok: false, error: error?.message ?? 'Error desconegut' }
 
-  // Si s'aprova automàticament, genera substitucions
   if (estat === 'aprovada') {
+    // Genera substitucions automàticament
     const gen = await generarSubstitucions(absencia.id)
-    if (!gen.ok) {
-      // No bloquejem: l'absència s'ha creat; les substitucions es generaran manualment
-      console.error('Error generant substitucions:', gen.error)
+    if (!gen.ok) console.error('Error generant substitucions:', gen.error)
+  } else if (estat === 'pendent' && docentInfo) {
+    // Dia personal: notifica el cap de personal
+    const { data: capsPersonal } = await supabase
+      .from('docent_rols')
+      .select('docent:docent_id(nom, email)')
+      .eq('rol', 'cap_personal')
+
+    for (const cp of (capsPersonal ?? []) as any[]) {
+      if (cp.docent?.email) {
+        enviarNotificacioAprovacioPendent({
+          emailGestor: cp.docent.email,
+          nomGestor: cp.docent.nom,
+          nomDocent: docentInfo.nom,
+          data: params.data,
+          motiu: params.motiu,
+        }).catch(console.error)
+      }
     }
   }
 
@@ -248,6 +311,19 @@ export async function actualitzarEstatAbsencia(
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient()
 
+  // Carrega dades per als correus
+  const { data: absencia } = await supabase
+    .from('absencies')
+    .select('data, motiu, docent:docent_id(nom, email)')
+    .eq('id', absenciaId)
+    .single()
+
+  const { data: gestor } = await supabase
+    .from('docents')
+    .select('nom')
+    .eq('id', docentGestorId)
+    .single()
+
   const { error } = await supabase
     .from('absencies')
     .update({
@@ -259,9 +335,22 @@ export async function actualitzarEstatAbsencia(
 
   if (error) return { ok: false, error: error.message }
 
+  // Notifica el docent de la resolució
+  const docentInfo = (absencia as any)?.docent
+  if (docentInfo?.email && absencia && gestor) {
+    enviarNotificacioRessolucioAbsencia({
+      emailDocent: docentInfo.email,
+      nomDocent: docentInfo.nom,
+      data: absencia.data,
+      estat: nouEstat,
+      nomGestor: gestor.nom,
+    }).catch(console.error)
+  }
+
   if (nouEstat === 'aprovada') {
     const gen = await generarSubstitucions(absenciaId)
     if (!gen.ok) console.error('Error generant substitucions:', gen.error)
+    // Les notificacions als substituts es fan dins de generarSubstitucions (see below)
   }
 
   return { ok: true }
