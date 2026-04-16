@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { reassignarSubstitucionsPendentsDia, generarSubstitucionsAcompanyants } from './generar-substitucions'
 import { enviarNotificacioResolucioSortida } from '@/lib/email'
+import { crearEsdevenimentSortida, eliminarEsdeveniment } from '@/lib/gcal'
 
 /**
  * Aprova o rebutja una sortida escolar.
@@ -31,7 +32,12 @@ export async function actualitzarEstatSortida(
   const [{ data: sortida }, { data: gestor }] = await Promise.all([
     supabase
       .from('sortides')
-      .select('descripcio, data, proposador:proposada_per(nom, email)')
+      .select(`
+        descripcio, data, hora_inici, hora_fi, google_event_id,
+        proposador:proposada_per(nom, email),
+        sortida_grups(grup:grup_id(nom)),
+        sortida_acompanyants(docent:docent_id(nom))
+      `)
       .eq('id', sortidaId)
       .single(),
     supabase
@@ -72,6 +78,35 @@ export async function actualitzarEstatSortida(
     ])
     if (!acomp.ok) console.error('Error generant substitucions acompanyants:', acomp.error)
     if (!cascada.ok) console.error('Error en efecte cascada sortida:', cascada.error)
+
+    // Google Calendar: crea l'esdeveniment i desa l'ID
+    if (sortida) {
+      const grups = ((sortida as any).sortida_grups ?? [])
+        .map((sg: any) => sg.grup?.nom).filter(Boolean)
+      const acompanyants = ((sortida as any).sortida_acompanyants ?? [])
+        .map((sa: any) => sa.docent?.nom).filter(Boolean)
+
+      const eventId = await crearEsdevenimentSortida({
+        descripcio: sortida.descripcio,
+        data: sortida.data,
+        horaInici: (sortida as any).hora_inici,
+        horaFi: (sortida as any).hora_fi,
+        grups,
+        acompanyants,
+      })
+
+      if (eventId) {
+        await supabase
+          .from('sortides')
+          .update({ google_event_id: eventId })
+          .eq('id', sortidaId)
+      }
+    }
+  }
+
+  if (nouEstat === 'rebutjada') {
+    const googleEventId = (sortida as any)?.google_event_id
+    if (googleEventId) eliminarEsdeveniment(googleEventId).catch(console.error)
   }
 
   return { ok: true }
