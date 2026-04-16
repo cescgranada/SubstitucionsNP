@@ -42,6 +42,7 @@ async function proposaSubstitut(
   supabase: Awaited<ReturnType<typeof createClient>>,
   franjaId: string,
   diaNum: number,
+  data: string,
   etapaId: string,
   docentAbsentId: string
 ): Promise<{ substitutId: string | null; motiu: string | null }> {
@@ -55,6 +56,43 @@ async function proposaSubstitut(
 
   const docentIdsEtapa = docentEtapa.map(d => d.docent_id)
 
+  // Prioritat 0: docents alliberats per sortida aprovada en aquesta franja
+  const { data: sortidesDelDia } = await supabase
+    .from('sortides')
+    .select('sortida_grups(grup_id), sortida_acompanyants(docent_id)')
+    .eq('data', data)
+    .eq('estat', 'aprovada')
+
+  if (sortidesDelDia && sortidesDelDia.length > 0) {
+    const grupIds = sortidesDelDia.flatMap(s =>
+      (s.sortida_grups as any[]).map((sg: any) => sg.grup_id)
+    )
+    const acompanyantIds = new Set(
+      sortidesDelDia.flatMap(s =>
+        (s.sortida_acompanyants as any[]).map((sa: any) => sa.docent_id)
+      )
+    )
+
+    if (grupIds.length > 0) {
+      const { data: alliberats } = await supabase
+        .from('horari_setmanal')
+        .select('docent_id')
+        .eq('franja_id', franjaId)
+        .eq('dia_setmana', diaNum)
+        .in('grup_id', grupIds)
+        .in('docent_id', docentIdsEtapa)
+
+      const candidat = (alliberats ?? []).find(d => !acompanyantIds.has(d.docent_id))
+      if (candidat) {
+        return {
+          substitutId: candidat.docent_id,
+          motiu: 'Docent alliberat per sortida escolar en aquesta franja',
+        }
+      }
+    }
+  }
+
+  // Prioritat 1-3: guàrdia, permanència, HNL
   for (const tipus of ['guardia', 'permanencia', 'hnl'] as const) {
     const { data: candidats } = await supabase
       .from('horari_setmanal')
@@ -253,7 +291,7 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
       let motiuProposta: string | null = null
 
       if (etapaId && h.franja?.id) {
-        const proposta = await proposaSubstitut(supabase, h.franja.id, diaNum, etapaId, absencia.docent_id)
+        const proposta = await proposaSubstitut(supabase, h.franja.id, diaNum, data, etapaId, absencia.docent_id)
         substitutId = proposta.substitutId
         motiuProposta = proposta.motiu
       }
@@ -478,4 +516,77 @@ export async function actualitzarEstatAbsencia(
   }
 
   return { ok: true }
+}
+
+/**
+ * Quan s'aprova una sortida, re-proposa les substitucions que estaven
+ * pendents aquell dia: els docents alliberats pels grups que surten
+ * passen a ser candidats prioritaris.
+ */
+export async function reassignarSubstitucionsPendentsDia(
+  sortidaId: string
+): Promise<{ ok: boolean; reassignades: number; error?: string }> {
+  const supabase = await createClient()
+
+  const { data: sortida } = await supabase
+    .from('sortides')
+    .select('data, sortida_grups(grup_id), sortida_acompanyants(docent_id)')
+    .eq('id', sortidaId)
+    .single()
+
+  if (!sortida) return { ok: false, reassignades: 0, error: 'Sortida no trobada' }
+
+  const grupIds = (sortida.sortida_grups as any[]).map((sg: any) => sg.grup_id)
+  if (grupIds.length === 0) return { ok: true, reassignades: 0 }
+
+  const diaNum = diaSetmana(sortida.data)
+
+  // Substitucions pendents aquell dia
+  const { data: pendents } = await supabase
+    .from('substitucions')
+    .select(`
+      id,
+      horari:horari_setmanal_id(franja_id),
+      absencia:absencia_id(docent_id)
+    `)
+    .eq('data', sortida.data)
+    .eq('estat', 'pendent')
+
+  if (!pendents || pendents.length === 0) return { ok: true, reassignades: 0 }
+
+  let reassignades = 0
+
+  for (const sub of pendents as any[]) {
+    const franjaId = (sub.horari as any)?.franja_id
+    const docentAbsentId = (sub.absencia as any)?.docent_id
+    if (!franjaId || !docentAbsentId) continue
+
+    const { data: etapes } = await supabase
+      .from('docent_etapes')
+      .select('etapa_id')
+      .eq('docent_id', docentAbsentId)
+
+    const etapaId = etapes?.[0]?.etapa_id
+    if (!etapaId) continue
+
+    const proposta = await proposaSubstitut(
+      supabase, franjaId, diaNum, sortida.data, etapaId, docentAbsentId
+    )
+
+    if (proposta.substitutId) {
+      const { error } = await supabase
+        .from('substitucions')
+        .update({
+          substitut_id: proposta.substitutId,
+          estat: 'proposta_ia',
+          proposat_per_ia: true,
+          motiu_proposta_ia: proposta.motiu,
+        })
+        .eq('id', sub.id)
+
+      if (!error) reassignades++
+    }
+  }
+
+  return { ok: true, reassignades }
 }

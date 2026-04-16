@@ -1,11 +1,13 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { reassignarSubstitucionsPendentsDia } from './generar-substitucions'
 
 /**
  * Aprova o rebutja una sortida escolar.
- * Si s'aprova, en el futur aquí s'activaria l'efecte cascada
- * (alliberar els docents que tenien classe amb els grups que surten).
+ * Si s'aprova, activa l'efecte cascada: els docents alliberats pels grups
+ * que surten passen a ser candidats prioritaris per a les substitucions
+ * pendents del mateix dia.
  */
 export async function actualitzarEstatSortida(
   sortidaId: string,
@@ -36,8 +38,10 @@ export async function actualitzarEstatSortida(
 
   if (error) return { ok: false, error: error.message }
 
-  // TODO Fase 2: si aprovada, generar substitucions per efecte cascada
-  // (els docents que tenien classe amb els grups que surten queden alliberats)
+  if (nouEstat === 'aprovada') {
+    const cascada = await reassignarSubstitucionsPendentsDia(sortidaId)
+    if (!cascada.ok) console.error('Error en efecte cascada sortida:', cascada.error)
+  }
 
   return { ok: true }
 }
