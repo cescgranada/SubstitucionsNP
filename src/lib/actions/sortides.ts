@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { reassignarSubstitucionsPendentsDia } from './generar-substitucions'
+import { reassignarSubstitucionsPendentsDia, generarSubstitucionsAcompanyants } from './generar-substitucions'
 import { enviarNotificacioResolucioSortida } from '@/lib/email'
 
 /**
@@ -66,7 +66,11 @@ export async function actualitzarEstatSortida(
   }
 
   if (nouEstat === 'aprovada') {
-    const cascada = await reassignarSubstitucionsPendentsDia(sortidaId)
+    const [acomp, cascada] = await Promise.all([
+      generarSubstitucionsAcompanyants(sortidaId),
+      reassignarSubstitucionsPendentsDia(sortidaId),
+    ])
+    if (!acomp.ok) console.error('Error generant substitucions acompanyants:', acomp.error)
     if (!cascada.ok) console.error('Error en efecte cascada sortida:', cascada.error)
   }
 

@@ -590,3 +590,139 @@ export async function reassignarSubstitucionsPendentsDia(
 
   return { ok: true, reassignades }
 }
+
+/**
+ * Quan s'aprova una sortida, genera substitucions per a les classes dels
+ * acompanyants que queden descobertes: classes que solapen amb l'horari de
+ * la sortida i que NO són amb els grups que surten (aquests ja no hi seran).
+ */
+export async function generarSubstitucionsAcompanyants(
+  sortidaId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient()
+
+  const { data: sortida } = await supabase
+    .from('sortides')
+    .select(`
+      data, hora_inici, hora_fi,
+      sortida_grups(grup_id),
+      sortida_acompanyants(docent_id, docent:docent_id(nom))
+    `)
+    .eq('id', sortidaId)
+    .single()
+
+  if (!sortida) return { ok: false, error: 'Sortida no trobada' }
+
+  const acompanyants = sortida.sortida_acompanyants as any[]
+  if (acompanyants.length === 0) return { ok: true }
+
+  const grupsSortida = new Set(
+    (sortida.sortida_grups as any[]).map((sg: any) => sg.grup_id)
+  )
+  const diaNum = diaSetmana(sortida.data)
+
+  for (const acomp of acompanyants) {
+    const docentId = acomp.docent_id
+
+    const { data: horari } = await supabase
+      .from('horari_setmanal')
+      .select(`
+        id, tipus, grup_id, materia, aula, parella_docent_id, tipus_parella,
+        franja:franja_id(id, hora_inici, hora_fi),
+        grup:grup_id(nom)
+      `)
+      .eq('docent_id', docentId)
+      .eq('dia_setmana', diaNum)
+
+    if (!horari || horari.length === 0) continue
+
+    // Classes que solapen amb la sortida i no són amb un grup que surt
+    const classesAfectades = (horari as any[]).filter(h => {
+      if (['guardia', 'reunio', 'esbarjo', 'disponible'].includes(h.tipus)) return false
+      if (grupsSortida.has(h.grup_id)) return false
+      const franjaInici = h.franja?.hora_inici ?? '00:00'
+      const franjaFi = h.franja?.hora_fi ?? '23:59'
+      return franjaInici < sortida.hora_fi && franjaFi > sortida.hora_inici
+    })
+
+    if (classesAfectades.length === 0) continue
+
+    // Evita duplicats per a aquesta sortida
+    const { data: existing } = await supabase
+      .from('substitucions')
+      .select('horari_setmanal_id')
+      .eq('sortida_id', sortidaId)
+      .eq('data', sortida.data)
+
+    const horariJaProcessats = new Set(existing?.map(s => s.horari_setmanal_id) ?? [])
+
+    const { data: etapes } = await supabase
+      .from('docent_etapes')
+      .select('etapa_id')
+      .eq('docent_id', docentId)
+    const etapaId = etapes?.[0]?.etapa_id ?? null
+
+    for (const h of classesAfectades) {
+      if (horariJaProcessats.has(h.id)) continue
+
+      // Codocència: l'altra meitat cobreix, no cal substitut extern
+      if (h.tipus_parella === 'codocencia') {
+        await supabase.from('substitucions').insert({
+          sortida_id: sortidaId,
+          horari_setmanal_id: h.id,
+          data: sortida.data,
+          substitut_id: h.parella_docent_id,
+          estat: 'confirmada',
+          proposat_per_ia: false,
+          motiu_proposta_ia: 'Codocència: cobert per la parella docent',
+        })
+        continue
+      }
+
+      let substitutId: string | null = null
+      let motiuProposta: string | null = null
+
+      if (etapaId && h.franja?.id) {
+        const proposta = await proposaSubstitut(
+          supabase, h.franja.id, diaNum, sortida.data, etapaId, docentId
+        )
+        substitutId = proposta.substitutId
+        motiuProposta = proposta.motiu
+      }
+
+      await supabase.from('substitucions').insert({
+        sortida_id: sortidaId,
+        horari_setmanal_id: h.id,
+        data: sortida.data,
+        substitut_id: substitutId,
+        estat: substitutId ? 'proposta_ia' : 'pendent',
+        proposat_per_ia: !!substitutId,
+        motiu_proposta_ia: motiuProposta,
+      })
+
+      if (substitutId) {
+        const { data: substitut } = await supabase
+          .from('docents')
+          .select('nom, email')
+          .eq('id', substitutId)
+          .single()
+
+        if (substitut?.email) {
+          enviarNotificacioSubstitut({
+            emailSubstitut: substitut.email,
+            nomSubstitut: substitut.nom,
+            nomDocentAbsent: acomp.docent?.nom ?? '',
+            data: sortida.data,
+            horaInici: h.franja?.hora_inici ?? '',
+            horaFi: h.franja?.hora_fi ?? '',
+            grup: h.grup?.nom,
+            materia: h.materia ?? undefined,
+            aula: h.aula ?? undefined,
+          }).catch(console.error)
+        }
+      }
+    }
+  }
+
+  return { ok: true }
+}
