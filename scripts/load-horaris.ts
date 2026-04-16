@@ -152,8 +152,9 @@ async function main() {
     process.exit(1)
   }
 
+  const normalitzaHora = (h: string) => h.slice(0, 5) // "09:00:00" → "09:00"
   const franjaKey = (etapaId: string, horaInici: string, horaFi: string) =>
-    `${etapaId}|${horaInici}|${horaFi}`
+    `${etapaId}|${normalitzaHora(horaInici)}|${normalitzaHora(horaFi)}`
   const franjaPerKey = Object.fromEntries(
     frangesList.map(f => [franjaKey(f.etapa_id, f.hora_inici, f.hora_fi), f.id])
   )
