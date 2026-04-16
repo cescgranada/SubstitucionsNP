@@ -7,6 +7,17 @@ const MOTIUS: Record<string, string> = {
   formacio: 'Formació',
 }
 
+function formatData(data: string, dataFi: string | null): string {
+  const opcions = { day: 'numeric', month: 'long' } as const
+  const opcionsFull = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' } as const
+  const inici = new Date(data + 'T12:00:00').toLocaleDateString('ca-ES', opcions)
+  if (!dataFi || dataFi === data) {
+    return new Date(data + 'T12:00:00').toLocaleDateString('ca-ES', opcionsFull)
+  }
+  const fi = new Date(dataFi + 'T12:00:00').toLocaleDateString('ca-ES', opcions)
+  return `Del ${inici} al ${fi}`
+}
+
 export default async function AbsenciesPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -31,7 +42,7 @@ export default async function AbsenciesPage() {
   // Absències pròpies
   const { data: absenciesPropia } = await supabase
     .from('absencies')
-    .select('id, data, motiu, estat, tot_el_dia, hora_inici, hora_fi, observacions')
+    .select('id, data, data_fi, motiu, estat, tot_el_dia, hora_inici, hora_fi')
     .eq('docent_id', docent.id)
     .order('data', { ascending: false })
     .limit(20)
@@ -40,7 +51,7 @@ export default async function AbsenciesPage() {
   const { data: absenciesGestio } = esGestor
     ? await supabase
         .from('absencies')
-        .select('id, data, motiu, estat, docent:docent_id(nom)')
+        .select('id, data, data_fi, motiu, estat, docent:docent_id(nom)')
         .eq('estat', 'pendent')
         .order('data', { ascending: true })
     : { data: null }
@@ -73,7 +84,7 @@ export default async function AbsenciesPage() {
                 <div>
                   <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>{a.docent?.nom}</p>
                   <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                    {new Date(a.data).toLocaleDateString('ca-ES', { weekday: 'long', day: 'numeric', month: 'long' })} · {MOTIUS[a.motiu]}
+                    {formatData(a.data, a.data_fi)} · {MOTIUS[a.motiu]}
                   </p>
                 </div>
                 <span className="badge badge-pendent">Pendent</span>
@@ -90,7 +101,7 @@ export default async function AbsenciesPage() {
         </h2>
         {absenciesPropia && absenciesPropia.length > 0 ? (
           <div className="space-y-2">
-            {absenciesPropia.map((a) => (
+            {absenciesPropia.map((a: any) => (
               <Link
                 key={a.id}
                 href={`/absencies/${a.id}`}
@@ -99,7 +110,7 @@ export default async function AbsenciesPage() {
               >
                 <div>
                   <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                    {new Date(a.data).toLocaleDateString('ca-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                    {formatData(a.data, a.data_fi)}
                   </p>
                   <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
                     {MOTIUS[a.motiu]}

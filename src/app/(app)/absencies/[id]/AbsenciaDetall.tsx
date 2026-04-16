@@ -10,6 +10,23 @@ const MOTIUS: Record<string, string> = {
   formacio: 'Formació',
 }
 
+function formatData(data: string, dataFi: string | null): string {
+  const opcionsFull = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' } as const
+  const opcions = { day: 'numeric', month: 'long' } as const
+  if (!dataFi || dataFi === data) {
+    return new Date(data + 'T12:00:00').toLocaleDateString('ca-ES', opcionsFull)
+  }
+  const inici = new Date(data + 'T12:00:00').toLocaleDateString('ca-ES', opcions)
+  const fi = new Date(dataFi + 'T12:00:00').toLocaleDateString('ca-ES', opcionsFull)
+  return `Del ${inici} al ${fi}`
+}
+
+function formatDataCurt(data: string): string {
+  return new Date(data + 'T12:00:00').toLocaleDateString('ca-ES', {
+    weekday: 'short', day: 'numeric', month: 'short',
+  })
+}
+
 interface Props {
   absencia: any
   substitucions: any[]
@@ -23,6 +40,7 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
   const [error, setError] = useState('')
 
   const esPropietari = absencia.docent?.id === docentActualId
+  const esMultiDia = absencia.data_fi && absencia.data_fi !== absencia.data
 
   const handleDecisio = async (nouEstat: 'aprovada' | 'rebutjada') => {
     setLoading(nouEstat)
@@ -36,6 +54,16 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
     router.refresh()
     setLoading(null)
   }
+
+  // Agrupa substitucions per data si és multi-dia
+  const substitucionsPerDia = esMultiDia
+    ? substitucions.reduce((acc: Record<string, any[]>, s: any) => {
+        const d = s.data ?? absencia.data
+        if (!acc[d]) acc[d] = []
+        acc[d].push(s)
+        return acc
+      }, {})
+    : null
 
   return (
     <div className="max-w-lg space-y-5">
@@ -53,9 +81,7 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
               {esPropietari ? 'La meva absència' : absencia.docent?.nom}
             </h1>
             <p className="text-sm mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-              {new Date(absencia.data).toLocaleDateString('ca-ES', {
-                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-              })}
+              {formatData(absencia.data, absencia.data_fi)}
             </p>
           </div>
           <span className={`badge badge-${absencia.estat}`}>
@@ -71,9 +97,11 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
           <div className="flex justify-between">
             <dt style={{ color: 'var(--color-text-secondary)' }}>Durada</dt>
             <dd className="font-medium">
-              {absencia.tot_el_dia
-                ? 'Tot el dia'
-                : `${absencia.hora_inici?.slice(0, 5)} – ${absencia.hora_fi?.slice(0, 5)}`}
+              {esMultiDia
+                ? `${Math.round((new Date(absencia.data_fi + 'T12:00:00').getTime() - new Date(absencia.data + 'T12:00:00').getTime()) / 86400000) + 1} dies naturals`
+                : absencia.tot_el_dia
+                  ? 'Tot el dia'
+                  : `${absencia.hora_inici?.slice(0, 5)} – ${absencia.hora_fi?.slice(0, 5)}`}
             </dd>
           </div>
           {absencia.aprovador && (
@@ -126,51 +154,38 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
         )}
       </div>
 
-      {/* Classes afectades */}
-      {substitucions.length > 0 && (
+      {/* Classes afectades — vista multi-dia agrupada per dia */}
+      {esMultiDia && substitucionsPerDia && Object.keys(substitucionsPerDia).length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            Classes afectades ({substitucions.length})
+          </h2>
+          <div className="space-y-4">
+            {Object.entries(substitucionsPerDia).sort().map(([dia, subs]: [string, any[]]) => (
+              <div key={dia}>
+                <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                  {formatDataCurt(dia)}
+                </p>
+                <div className="space-y-2">
+                  {subs.map((s: any) => (
+                    <SubstitucioItem key={s.id} s={s} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Classes afectades — vista d'un sol dia */}
+      {!esMultiDia && substitucions.length > 0 && (
         <section>
           <h2 className="text-sm font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-secondary)' }}>
             Classes afectades ({substitucions.length})
           </h2>
           <div className="space-y-2">
             {substitucions.map((s: any) => (
-              <a
-                key={s.id}
-                href={`/substitucions/${s.id}`}
-                className="card flex items-start justify-between gap-3 hover:shadow-md transition-shadow block"
-                style={{ textDecoration: 'none' }}
-              >
-                <div>
-                  <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                    {s.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{s.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
-                    {s.horari_setmanal?.grup?.nom && ` · ${s.horari_setmanal.grup.nom}`}
-                    {s.horari_setmanal?.materia && ` · ${s.horari_setmanal.materia}`}
-                  </p>
-                  {s.motiu_proposta_ia && (
-                    <p className="text-xs mt-0.5 italic" style={{ color: 'var(--color-info)' }}>
-                      {s.motiu_proposta_ia}
-                    </p>
-                  )}
-                  {s.substitut ? (
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                      {s.estat === 'confirmada' ? 'Substitut/a: ' : 'Proposat/da: '}
-                      <strong>{s.substitut.nom}</strong>
-                    </p>
-                  ) : (
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-warning)' }}>
-                      Sense substitut assignat
-                    </p>
-                  )}
-                  {s.feina_substitut && (
-                    <p className="text-xs mt-1 italic" style={{ color: 'var(--color-text-secondary)' }}>
-                      &ldquo;{s.feina_substitut}&rdquo;
-                    </p>
-                  )}
-                </div>
-                <span className={`badge badge-${s.estat} flex-shrink-0`}>
-                  {s.estat === 'pendent' ? 'Pendent' : s.estat === 'proposta_ia' ? 'Proposta' : 'Confirmada'}
-                </span>
-              </a>
+              <SubstitucioItem key={s.id} s={s} />
             ))}
           </div>
         </section>
@@ -182,9 +197,45 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
           className="card text-sm"
           style={{ backgroundColor: 'var(--color-accent-light)', color: 'var(--color-primary)' }}
         >
-          No s&apos;han generat substitucions per a aquesta absència (potser el docent no té classes aquell dia o és cap de setmana).
+          No s&apos;han generat substitucions per a aquesta absència (potser el docent no té classes en els dies afectats o és cap de setmana).
         </div>
       )}
     </div>
+  )
+}
+
+function SubstitucioItem({ s }: { s: any }) {
+  return (
+    <a
+      href={`/substitucions/${s.id}`}
+      className="card flex items-start justify-between gap-3 hover:shadow-md transition-shadow block"
+      style={{ textDecoration: 'none' }}
+    >
+      <div>
+        <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+          {s.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{s.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
+          {s.horari_setmanal?.grup?.nom && ` · ${s.horari_setmanal.grup.nom}`}
+          {s.horari_setmanal?.materia && ` · ${s.horari_setmanal.materia}`}
+        </p>
+        {s.motiu_proposta_ia && (
+          <p className="text-xs mt-0.5 italic" style={{ color: 'var(--color-info)' }}>
+            {s.motiu_proposta_ia}
+          </p>
+        )}
+        {s.substitut ? (
+          <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
+            {s.estat === 'confirmada' ? 'Substitut/a: ' : 'Proposat/da: '}
+            <strong>{s.substitut.nom}</strong>
+          </p>
+        ) : (
+          <p className="text-xs mt-0.5" style={{ color: 'var(--color-warning)' }}>
+            Sense substitut assignat
+          </p>
+        )}
+      </div>
+      <span className={`badge badge-${s.estat} flex-shrink-0`}>
+        {s.estat === 'pendent' ? 'Pendent' : s.estat === 'proposta_ia' ? 'Proposta' : 'Confirmada'}
+      </span>
+    </a>
   )
 }

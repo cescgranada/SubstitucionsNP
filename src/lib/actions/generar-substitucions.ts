@@ -5,25 +5,37 @@ import {
   enviarNotificacioSubstitut,
   enviarNotificacioAprovacioPendent,
   enviarNotificacioRessolucioAbsencia,
+  enviarNotificacioCoordinador,
 } from '@/lib/email'
+
+/**
+ * Retorna els dies laborables (dl–dv) entre dues dates, en format YYYY-MM-DD.
+ */
+function diesLaborables(from: string, to: string): string[] {
+  const dies: string[] = []
+  const curr = new Date(from + 'T12:00:00')
+  const end = new Date(to + 'T12:00:00')
+  while (curr <= end) {
+    const dia = curr.getDay()
+    if (dia >= 1 && dia <= 5) {
+      dies.push(curr.toISOString().split('T')[0])
+    }
+    curr.setDate(curr.getDate() + 1)
+  }
+  return dies
+}
 
 /**
  * Converteix un dia de la setmana de Date.getDay() (0=diumenge) al format de la BD (1=dilluns..5=divendres)
  */
 function diaSetmana(dateStr: string): number {
-  const d = new Date(dateStr + 'T12:00:00') // hora central per evitar problemes de timezone
-  const js = d.getDay() // 0=dium, 1=dil, ..., 6=dis
-  return js === 0 ? 0 : js // retorna 0 si és cap de setmana (no s'ha de processar)
+  return new Date(dateStr + 'T12:00:00').getDay() // 1=dl, 5=dv, cap de setmana filtrat a diesLaborables
 }
 
 /**
  * Proposa el millor substitut per a una franja:
- *  1. Docents de guàrdia en aquella franja i etapa
- *  2. Docents amb permanència
- *  3. Docents amb HNL
- *  4. Restricció: ha de pertànyer a l'etapa del docent absent
- *
- * (Docents alliberats per sortida es tractaran quan s'implementi el mòdul de sortides)
+ *  1. Guàrdia → 2. Permanència → 3. HNL
+ *  Restricció: ha de pertànyer a l'etapa del docent absent.
  */
 async function proposaSubstitut(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -32,20 +44,16 @@ async function proposaSubstitut(
   etapaId: string,
   docentAbsentId: string
 ): Promise<{ substitutId: string | null; motiu: string | null }> {
-  // Docents de l'etapa (excloent l'absent)
   const { data: docentEtapa } = await supabase
     .from('docent_etapes')
     .select('docent_id')
     .eq('etapa_id', etapaId)
     .neq('docent_id', docentAbsentId)
 
-  if (!docentEtapa || docentEtapa.length === 0) {
-    return { substitutId: null, motiu: null }
-  }
+  if (!docentEtapa || docentEtapa.length === 0) return { substitutId: null, motiu: null }
 
   const docentIdsEtapa = docentEtapa.map(d => d.docent_id)
 
-  // Busca candidats per ordre de prioritat
   for (const tipus of ['guardia', 'permanencia', 'hnl'] as const) {
     const { data: candidats } = await supabase
       .from('horari_setmanal')
@@ -68,150 +76,165 @@ async function proposaSubstitut(
 
 /**
  * Genera les substitucions per a una absència aprovada.
- * - Busca les franges del docent absent aquell dia
- * - Per a cada franja de tipus 'classe':
- *   - Si és codocència: crea la substitució però marca que no cal substitut
- *   - Si és desdoblament o sense parella: proposa substitut per ordre de prioritat
- * - Per a guàrdia/reunió/etc: no genera substitució (no cal cobrir)
+ * Suporta absències multi-dia: itera des de `data` fins a `data_fi` (dies laborables).
+ * Per a cada dia i cada franja de classe del docent absent:
+ *   - Codocència → assigna la parella (confirmada)
+ *   - Altres → proposa substitut per ordre de prioritat (proposta_ia) o deixa pendent
  */
 export async function generarSubstitucions(absenciaId: string): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient()
 
-  // Carrega l'absència
   const { data: absencia } = await supabase
     .from('absencies')
-    .select('id, docent_id, data, tot_el_dia, hora_inici, hora_fi, estat')
+    .select('id, docent_id, data, data_fi, tot_el_dia, hora_inici, hora_fi, estat')
     .eq('id', absenciaId)
     .single()
 
   if (!absencia) return { ok: false, error: 'Absència no trobada' }
-  if (absencia.estat !== 'aprovada') return { ok: false, error: 'L\'absència no està aprovada' }
+  if (absencia.estat !== 'aprovada') return { ok: false, error: "L'absència no està aprovada" }
 
-  const diaNum = diaSetmana(absencia.data)
-  if (diaNum === 0) return { ok: true } // cap de setmana, res a fer
+  const dies = diesLaborables(absencia.data, absencia.data_fi ?? absencia.data)
+  if (dies.length === 0) return { ok: true }
 
-  // Comprova que no s'hagin generat ja les substitucions
-  const { count } = await supabase
+  // Evita duplicats: comprova quins dies ja tenen substitucions generades
+  const { data: existing } = await supabase
     .from('substitucions')
-    .select('*', { count: 'exact', head: true })
+    .select('data')
     .eq('absencia_id', absenciaId)
 
-  if (count && count > 0) return { ok: true } // ja generades
+  const diesJaProcessats = new Set(existing?.map(s => s.data) ?? [])
+  const diesAProcesar = dies.filter(d => !diesJaProcessats.has(d))
+  if (diesAProcesar.length === 0) return { ok: true }
 
-  // Etapa/es del docent absent
+  // Etapa del docent absent (primera etapa)
   const { data: etapes } = await supabase
     .from('docent_etapes')
     .select('etapa_id')
     .eq('docent_id', absencia.docent_id)
-
   const etapaId = etapes?.[0]?.etapa_id ?? null
 
-  // Horari del docent absent per aquell dia de la setmana
-  const { data: horari } = await supabase
-    .from('horari_setmanal')
-    .select(`
-      id, tipus, tipus_parella, parella_docent_id, materia, aula,
-      franja:franja_id(id, hora_inici, hora_fi),
-      grup:grup_id(nom)
-    `)
-    .eq('docent_id', absencia.docent_id)
-    .eq('dia_setmana', diaNum)
+  const { data: docentAbsent } = await supabase
+    .from('docents')
+    .select('nom')
+    .eq('id', absencia.docent_id)
+    .single()
 
-  if (!horari || horari.length === 0) return { ok: true } // docent sense classes aquell dia
+  let totalCreades = 0
+  const substitutIdsNotificats = new Set<string>()
 
-  // Filtra les franges afectades per l'absència parcial
-  const frangesAfectades = horari.filter((h: any) => {
-    if (absencia.tot_el_dia) return true
-    if (!absencia.hora_inici || !absencia.hora_fi) return true
-    const franjaInici = h.franja?.hora_inici ?? '00:00'
-    const franjaFi = h.franja?.hora_fi ?? '23:59'
-    // La franja es solapa amb la franja d'absència
-    return franjaInici < absencia.hora_fi && franjaFi > absencia.hora_inici
-  })
+  for (const data of diesAProcesar) {
+    const diaNum = diaSetmana(data)
 
-  // Crea substitucions
-  const substitucionsACrear = []
+    const { data: horari } = await supabase
+      .from('horari_setmanal')
+      .select(`
+        id, tipus, tipus_parella, parella_docent_id, materia, aula,
+        franja:franja_id(id, hora_inici, hora_fi),
+        grup:grup_id(nom)
+      `)
+      .eq('docent_id', absencia.docent_id)
+      .eq('dia_setmana', diaNum)
 
-  for (const h of frangesAfectades as any[]) {
-    // Guàrdies, reunions, esbarjos, disponible: no cal substitució
-    if (['guardia', 'reunio', 'esbarjo', 'disponible'].includes(h.tipus)) continue
+    if (!horari || horari.length === 0) continue
 
-    // Codocència: l'altre docent cobreix, no cal substitut extern
-    if (h.tipus_parella === 'codocencia') {
+    const frangesAfectades = horari.filter((h: any) => {
+      if (absencia.tot_el_dia) return true
+      if (!absencia.hora_inici || !absencia.hora_fi) return true
+      const franjaInici = h.franja?.hora_inici ?? '00:00'
+      const franjaFi = h.franja?.hora_fi ?? '23:59'
+      return franjaInici < absencia.hora_fi && franjaFi > absencia.hora_inici
+    })
+
+    const substitucionsACrear: any[] = []
+
+    for (const h of frangesAfectades as any[]) {
+      if (['guardia', 'reunio', 'esbarjo', 'disponible'].includes(h.tipus)) continue
+
+      if (h.tipus_parella === 'codocencia') {
+        substitucionsACrear.push({
+          absencia_id: absenciaId,
+          horari_setmanal_id: h.id,
+          data,
+          substitut_id: h.parella_docent_id,
+          estat: 'confirmada',
+          proposat_per_ia: false,
+          motiu_proposta_ia: 'Codocència: cobert per la parella docent',
+        })
+        continue
+      }
+
+      let substitutId: string | null = null
+      let motiuProposta: string | null = null
+
+      if (etapaId && h.franja?.id) {
+        const proposta = await proposaSubstitut(supabase, h.franja.id, diaNum, etapaId, absencia.docent_id)
+        substitutId = proposta.substitutId
+        motiuProposta = proposta.motiu
+      }
+
       substitucionsACrear.push({
         absencia_id: absenciaId,
         horari_setmanal_id: h.id,
-        data: absencia.data,
-        substitut_id: h.parella_docent_id, // la parella ja cobreix
-        estat: 'confirmada',
-        proposat_per_ia: false,
-        motiu_proposta_ia: 'Codocència: cobert per la parella docent',
+        data,
+        substitut_id: substitutId,
+        estat: substitutId ? 'proposta_ia' : 'pendent',
+        proposat_per_ia: !!substitutId,
+        motiu_proposta_ia: motiuProposta,
       })
-      continue
     }
 
-    // Proposta de substitut per ordre de prioritat
-    let substitutId: string | null = null
-    let motiuProposta: string | null = null
+    if (substitucionsACrear.length > 0) {
+      const { error } = await supabase.from('substitucions').insert(substitucionsACrear)
+      if (error) return { ok: false, error: error.message }
+      totalCreades += substitucionsACrear.length
 
-    if (etapaId && h.franja?.id) {
-      const proposta = await proposaSubstitut(
-        supabase,
-        h.franja.id,
-        diaNum,
-        etapaId,
-        absencia.docent_id
-      )
-      substitutId = proposta.substitutId
-      motiuProposta = proposta.motiu
+      // Notifica els substituts proposats/confirmats
+      for (const s of substitucionsACrear) {
+        if (!s.substitut_id || substitutIdsNotificats.has(`${s.substitut_id}-${data}`)) continue
+        substitutIdsNotificats.add(`${s.substitut_id}-${data}`)
+
+        const { data: substitut } = await supabase
+          .from('docents')
+          .select('nom, email')
+          .eq('id', s.substitut_id)
+          .single()
+
+        const horariEntry = (horari as any[]).find(h => h.id === s.horari_setmanal_id)
+
+        if (substitut?.email) {
+          enviarNotificacioSubstitut({
+            emailSubstitut: substitut.email,
+            nomSubstitut: substitut.nom,
+            nomDocentAbsent: docentAbsent?.nom ?? '',
+            data,
+            horaInici: horariEntry?.franja?.hora_inici ?? '',
+            horaFi: horariEntry?.franja?.hora_fi ?? '',
+            grup: horariEntry?.grup?.nom,
+            materia: horariEntry?.materia ?? undefined,
+            aula: horariEntry?.aula ?? undefined,
+          }).catch(console.error)
+        }
+      }
     }
-
-    substitucionsACrear.push({
-      absencia_id: absenciaId,
-      horari_setmanal_id: h.id,
-      data: absencia.data,
-      substitut_id: substitutId,
-      estat: substitutId ? 'proposta_ia' : 'pendent',
-      proposat_per_ia: !!substitutId,
-      motiu_proposta_ia: motiuProposta,
-    })
   }
 
-  if (substitucionsACrear.length > 0) {
-    const { error } = await supabase.from('substitucions').insert(substitucionsACrear)
-    if (error) return { ok: false, error: error.message }
+  // Notifica els coordinadors de l'etapa (si s'han generat substitucions automàticament)
+  if (totalCreades > 0 && etapaId) {
+    const { data: coordinadors } = await supabase
+      .from('docent_rols')
+      .select('docent:docent_id(nom, email)')
+      .in('rol', ['coordinacio_etapa', 'director', 'sotsdirector'])
+      .or(`etapa_id.eq.${etapaId},rol.in.(director,sotsdirector)`)
 
-    // Notifica els substituts assignats (proposta_ia i confirmada)
-    const { data: docentAbsent } = await supabase
-      .from('docents')
-      .select('nom')
-      .eq('id', absencia.docent_id)
-      .single()
-
-    for (const s of substitucionsACrear) {
-      if (!s.substitut_id) continue
-
-      const { data: substitut } = await supabase
-        .from('docents')
-        .select('nom, email')
-        .eq('id', s.substitut_id)
-        .single()
-
-      // Dades de la franja per al correu
-      const horariEntry = horari?.find((h: any) => h.id === s.horari_setmanal_id) as any
-
-      if (substitut?.email) {
-        enviarNotificacioSubstitut({
-          emailSubstitut: substitut.email,
-          nomSubstitut: substitut.nom,
+    for (const c of (coordinadors ?? []) as any[]) {
+      if (c.docent?.email) {
+        enviarNotificacioCoordinador({
+          emailCoordinador: c.docent.email,
+          nomCoordinador: c.docent.nom,
           nomDocentAbsent: docentAbsent?.nom ?? '',
-          data: absencia.data,
-          horaInici: horariEntry?.franja?.hora_inici ?? '',
-          horaFi: horariEntry?.franja?.hora_fi ?? '',
-          grup: horariEntry?.grup?.nom,
-          materia: horariEntry?.materia ?? undefined,
-          aula: horariEntry?.aula ?? undefined,
-          feinaSubstitut: (s as any).feina_substitut ?? undefined,
+          dataInici: absencia.data,
+          dataFi: absencia.data_fi ?? absencia.data,
+          numSubstitucions: totalCreades,
         }).catch(console.error)
       }
     }
@@ -226,6 +249,7 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
 export async function crearAbsencia(params: {
   docentId: string
   data: string
+  dataFi?: string
   motiu: 'medic' | 'dia_personal' | 'formacio'
   totElDia: boolean
   horaInici?: string
@@ -234,7 +258,6 @@ export async function crearAbsencia(params: {
 }): Promise<{ ok: boolean; absenciaId?: string; error?: string }> {
   const supabase = await createClient()
 
-  // Verifica que el docent autenticat és el mateix
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'No autenticat' }
 
@@ -248,9 +271,11 @@ export async function crearAbsencia(params: {
     return { ok: false, error: 'Sense permís' }
   }
 
+  // Si hi ha data_fi, forcem tot_el_dia = true
+  const totElDia = params.dataFi && params.dataFi !== params.data ? true : params.totElDia
+
   const estat = params.motiu === 'dia_personal' ? 'pendent' : 'aprovada'
 
-  // Nom del docent per als correus
   const { data: docentInfo } = await supabase
     .from('docents')
     .select('nom, email')
@@ -262,10 +287,11 @@ export async function crearAbsencia(params: {
     .insert({
       docent_id: params.docentId,
       data: params.data,
+      data_fi: params.dataFi && params.dataFi !== params.data ? params.dataFi : null,
       motiu: params.motiu,
-      tot_el_dia: params.totElDia,
-      hora_inici: params.totElDia ? null : (params.horaInici ?? null),
-      hora_fi: params.totElDia ? null : (params.horaFi ?? null),
+      tot_el_dia: totElDia,
+      hora_inici: totElDia ? null : (params.horaInici ?? null),
+      hora_fi: totElDia ? null : (params.horaFi ?? null),
       observacions: params.observacions ?? null,
       estat,
     })
@@ -275,11 +301,9 @@ export async function crearAbsencia(params: {
   if (error || !absencia) return { ok: false, error: error?.message ?? 'Error desconegut' }
 
   if (estat === 'aprovada') {
-    // Genera substitucions automàticament
     const gen = await generarSubstitucions(absencia.id)
     if (!gen.ok) console.error('Error generant substitucions:', gen.error)
   } else if (estat === 'pendent' && docentInfo) {
-    // Dia personal: notifica el cap de personal
     const { data: capsPersonal } = await supabase
       .from('docent_rols')
       .select('docent:docent_id(nom, email)')
@@ -311,10 +335,9 @@ export async function actualitzarEstatAbsencia(
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient()
 
-  // Carrega dades per als correus
   const { data: absencia } = await supabase
     .from('absencies')
-    .select('data, motiu, docent:docent_id(nom, email)')
+    .select('data, data_fi, motiu, docent:docent_id(nom, email)')
     .eq('id', absenciaId)
     .single()
 
@@ -335,7 +358,6 @@ export async function actualitzarEstatAbsencia(
 
   if (error) return { ok: false, error: error.message }
 
-  // Notifica el docent de la resolució
   const docentInfo = (absencia as any)?.docent
   if (docentInfo?.email && absencia && gestor) {
     enviarNotificacioRessolucioAbsencia({
@@ -350,7 +372,6 @@ export async function actualitzarEstatAbsencia(
   if (nouEstat === 'aprovada') {
     const gen = await generarSubstitucions(absenciaId)
     if (!gen.ok) console.error('Error generant substitucions:', gen.error)
-    // Les notificacions als substituts es fan dins de generarSubstitucions (see below)
   }
 
   return { ok: true }

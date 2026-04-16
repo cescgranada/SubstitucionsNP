@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import AgendaDia from './AgendaDia'
 
 export default async function SubstitucionsPage() {
   const supabase = await createClient()
@@ -23,8 +24,11 @@ export default async function SubstitucionsPage() {
   )
 
   const avui = new Date().toISOString().split('T')[0]
+  // Per a l'agenda: carrega les properes 2 setmanes + la setmana anterior
+  const dataAgendaInici = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
+  const dataAgendaFi = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]
 
-  // Substitucions on soc el substitut (properes i passades)
+  // Substitucions on soc el substitut
   const { data: comsubs } = await supabase
     .from('substitucions')
     .select(`
@@ -42,8 +46,30 @@ export default async function SubstitucionsPage() {
     .order('data', { ascending: false })
     .limit(20)
 
-  // Totes les substitucions pendents (si és gestor)
-  const { data: totes } = esGestor
+  // Totes les substitucions per a l'agenda (gestors) — rang de dates ampli
+  const { data: agenda } = esGestor
+    ? await supabase
+        .from('substitucions')
+        .select(`
+          id, data, estat,
+          substitut:substitut_id(nom),
+          horari_setmanal:horari_setmanal_id(
+            tipus, materia,
+            franja:franja_id(hora_inici, hora_fi),
+            grup:grup_id(nom)
+          ),
+          absencia:absencia_id(
+            docent:docent_id(nom)
+          )
+        `)
+        .gte('data', dataAgendaInici)
+        .lte('data', dataAgendaFi)
+        .order('data')
+        .order('created_at')
+    : { data: null }
+
+  // Substitucions pendents de confirmar (gestors) — resum compacte
+  const { data: pendents } = esGestor
     ? await supabase
         .from('substitucions')
         .select(`
@@ -61,6 +87,7 @@ export default async function SubstitucionsPage() {
         .in('estat', ['pendent', 'proposta_ia'])
         .gte('data', avui)
         .order('data', { ascending: true })
+        .limit(10)
     : { data: null }
 
   return (
@@ -69,14 +96,22 @@ export default async function SubstitucionsPage() {
         Substitucions
       </h1>
 
+      {/* Agenda interactiva (gestors) */}
+      {esGestor && agenda && (
+        <AgendaDia
+          substitucions={agenda as any}
+          dataSeleccionada={avui}
+        />
+      )}
+
       {/* Gestió: pendents de confirmar */}
-      {esGestor && totes && totes.length > 0 && (
+      {esGestor && pendents && pendents.length > 0 && (
         <section>
           <h2 className="text-sm font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-            Per confirmar ({totes.length})
+            Per confirmar ({pendents.length})
           </h2>
           <div className="space-y-2">
-            {totes.map((s: any) => (
+            {pendents.map((s: any) => (
               <Link
                 key={s.id}
                 href={`/substitucions/${s.id}`}
@@ -93,7 +128,7 @@ export default async function SubstitucionsPage() {
                     {s.horari_setmanal?.grup?.nom && ` · ${s.horari_setmanal.grup.nom}`}
                   </p>
                   {s.substitut && (
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-info)' }}>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-accent)' }}>
                       Proposat: {s.substitut.nom}
                     </p>
                   )}

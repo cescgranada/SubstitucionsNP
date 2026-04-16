@@ -13,6 +13,8 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
   const router = useRouter()
 
   const [data, setData] = useState('')
+  const [multiDia, setMultiDia] = useState(false)
+  const [dataFi, setDataFi] = useState('')
   const [motiu, setMotiu] = useState<'medic' | 'dia_personal' | 'formacio'>('medic')
   const [totElDia, setTotElDia] = useState(true)
   const [horaInici, setHoraInici] = useState('')
@@ -31,7 +33,12 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
       setLoading(false)
       return
     }
-    if (!totElDia && (!horaInici || !horaFi)) {
+    if (multiDia && dataFi && dataFi < data) {
+      setError('La data de fi no pot ser anterior a la data d\'inici.')
+      setLoading(false)
+      return
+    }
+    if (!totElDia && !multiDia && (!horaInici || !horaFi)) {
       setError('Cal indicar la franja horària.')
       setLoading(false)
       return
@@ -40,29 +47,31 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
     const result = await crearAbsencia({
       docentId,
       data,
+      dataFi: multiDia && dataFi ? dataFi : undefined,
       motiu,
-      totElDia,
-      horaInici: totElDia ? undefined : horaInici,
-      horaFi: totElDia ? undefined : horaFi,
+      totElDia: multiDia ? true : totElDia,
+      horaInici: totElDia || multiDia ? undefined : horaInici,
+      horaFi: totElDia || multiDia ? undefined : horaFi,
       observacions: observacions || undefined,
     })
 
     if (!result.ok) {
-      setError(result.error ?? 'Error en desar l\'absència. Torna-ho a provar.')
+      setError(result.error ?? "Error en desar l'absència. Torna-ho a provar.")
       setLoading(false)
       return
     }
 
-    // Redirigeix al detall per veure les substitucions generades
     router.push(result.absenciaId ? `/absencies/${result.absenciaId}` : '/absencies')
     router.refresh()
   }
 
   return (
     <form onSubmit={handleSubmit} className="card space-y-5">
-      {/* Data */}
+      {/* Data inici */}
       <div>
-        <label htmlFor="data">Data de l&apos;absència</label>
+        <label htmlFor="data">
+          {multiDia ? 'Data d\'inici' : 'Data de l\'absència'}
+        </label>
         <input
           id="data"
           type="date"
@@ -72,6 +81,42 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
           required
         />
       </div>
+
+      {/* Toggle multi-dia */}
+      <div>
+        <button
+          type="button"
+          onClick={() => { setMultiDia(!multiDia); setDataFi('') }}
+          className="flex items-center gap-2 text-sm font-medium"
+          style={{ color: multiDia ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}
+        >
+          <span
+            className="w-8 h-4 rounded-full transition-colors flex-shrink-0 relative"
+            style={{ backgroundColor: multiDia ? 'var(--color-primary)' : 'var(--color-border)' }}
+          >
+            <span
+              className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform"
+              style={{ transform: multiDia ? 'translateX(18px)' : 'translateX(2px)' }}
+            />
+          </span>
+          Més d&apos;un dia
+        </button>
+      </div>
+
+      {/* Data fi (si multi-dia) */}
+      {multiDia && (
+        <div>
+          <label htmlFor="data-fi">Data de fi</label>
+          <input
+            id="data-fi"
+            type="date"
+            value={dataFi}
+            onChange={(e) => setDataFi(e.target.value)}
+            min={data || new Date().toISOString().split('T')[0]}
+            required={multiDia}
+          />
+        </div>
+      )}
 
       {/* Motiu */}
       <div>
@@ -105,38 +150,40 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
         )}
       </div>
 
-      {/* Tot el dia / franja */}
-      <div>
-        <label>Durada</label>
-        <div className="flex gap-3 mt-1">
-          <button
-            type="button"
-            onClick={() => setTotElDia(true)}
-            className="flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors"
-            style={{
-              borderColor: totElDia ? 'var(--color-primary)' : 'var(--color-border)',
-              backgroundColor: totElDia ? 'var(--color-primary-light)' : 'white',
-              color: totElDia ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            }}
-          >
-            Tot el dia
-          </button>
-          <button
-            type="button"
-            onClick={() => setTotElDia(false)}
-            className="flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors"
-            style={{
-              borderColor: !totElDia ? 'var(--color-primary)' : 'var(--color-border)',
-              backgroundColor: !totElDia ? 'var(--color-primary-light)' : 'white',
-              color: !totElDia ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            }}
-          >
-            Franja horària
-          </button>
+      {/* Tot el dia / franja (només per absències d'un sol dia) */}
+      {!multiDia && (
+        <div>
+          <label>Durada</label>
+          <div className="flex gap-3 mt-1">
+            <button
+              type="button"
+              onClick={() => setTotElDia(true)}
+              className="flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors"
+              style={{
+                borderColor: totElDia ? 'var(--color-primary)' : 'var(--color-border)',
+                backgroundColor: totElDia ? 'var(--color-primary-light)' : 'white',
+                color: totElDia ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+              }}
+            >
+              Tot el dia
+            </button>
+            <button
+              type="button"
+              onClick={() => setTotElDia(false)}
+              className="flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors"
+              style={{
+                borderColor: !totElDia ? 'var(--color-primary)' : 'var(--color-border)',
+                backgroundColor: !totElDia ? 'var(--color-primary-light)' : 'white',
+                color: !totElDia ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+              }}
+            >
+              Franja horària
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {!totElDia && (
+      {!totElDia && !multiDia && (
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label htmlFor="hora-inici">Hora d&apos;inici</label>

@@ -157,6 +157,57 @@ export async function enviarNotificacioAprovacioPendent(params: {
 }
 
 /**
+ * Notifica al coordinador d'etapa (o director) que s'han generat substitucions automàticament
+ */
+export async function enviarNotificacioCoordinador(params: {
+  emailCoordinador: string
+  nomCoordinador: string
+  nomDocentAbsent: string
+  dataInici: string
+  dataFi: string
+  numSubstitucions: number
+}): Promise<void> {
+  if (!esConfigurat()) {
+    console.log('[email] Resend no configurat, saltant notificació a', params.emailCoordinador)
+    return
+  }
+
+  const dataIniciF = new Date(params.dataInici + 'T12:00:00').toLocaleDateString('ca-ES', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  })
+  const multiDia = params.dataFi !== params.dataInici
+  const dataFiF = multiDia
+    ? new Date(params.dataFi + 'T12:00:00').toLocaleDateString('ca-ES', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      })
+    : null
+
+  const contingut = `
+    <p>Hola, <strong>${params.nomCoordinador}</strong>!</p>
+    <p>S'han generat <strong>${params.numSubstitucions} substitució${params.numSubstitucions !== 1 ? 'ns' : ''}</strong> per a l'absència de <strong>${params.nomDocentAbsent}</strong>:</p>
+    <div class="info-box">
+      <div class="info-row">
+        <span class="info-label">${multiDia ? 'Del' : 'Data'}</span>
+        <span class="info-value">${dataIniciF}</span>
+      </div>
+      ${multiDia ? `<div class="info-row"><span class="info-label">Al</span><span class="info-value">${dataFiF}</span></div>` : ''}
+      <div class="info-row">
+        <span class="info-label">Substitucions</span>
+        <span class="info-value">${params.numSubstitucions}</span>
+      </div>
+    </div>
+    <p>Accedeix a SubsCoop per revisar i confirmar les substitucions proposades.</p>
+  `
+
+  await resend.emails.send({
+    from: FROM,
+    to: params.emailCoordinador,
+    subject: `Substitucions generades — ${params.nomDocentAbsent} (${dataIniciF})`,
+    html: htmlBase(contingut),
+  })
+}
+
+/**
  * Notifica al docent que la seva absència ha estat aprovada o rebutjada
  */
 export async function enviarNotificacioRessolucioAbsencia(params: {
