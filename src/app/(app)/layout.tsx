@@ -22,8 +22,24 @@ export default async function AppLayout({
     .eq('email', user.email!)
     .single()
 
+  // No redirigim a /login si no hi ha docent — causaria un loop infinit
+  // (login veu usuari autenticat → redirigeix a / → layout → redirigeix a /login → ...)
   if (!docent) {
-    redirect('/login?error=no_docent')
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: 'var(--color-bg)' }}>
+        <div className="card max-w-sm w-full text-center">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center text-xl font-bold mx-auto mb-4"
+            style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}>NP</div>
+          <h1 className="text-lg font-semibold mb-2" style={{ color: 'var(--color-text)' }}>Accés no autoritzat</h1>
+          <p className="text-sm mb-6" style={{ color: 'var(--color-text-secondary)' }}>
+            El compte <strong>{user.email}</strong> no està registrat al sistema.<br />Contacta amb la direcció del centre.
+          </p>
+          <form action="/auth/signout" method="POST">
+            <button type="submit" className="btn-secondary w-full">Tanca la sessió</button>
+          </form>
+        </div>
+      </div>
+    )
   }
 
   return (

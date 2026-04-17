@@ -10,12 +10,14 @@ export default async function LoginPage({
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (user) {
-    redirect('/')
-  }
-
   const params = await searchParams
   const error = params.error
+
+  // Només redirigim si l'usuari és autenticat I no hi ha cap error pendent
+  // (evita loop: layout → /login?error=no_docent → /login redirecta a / → layout → ...)
+  if (user && !error) {
+    redirect('/')
+  }
 
   return (
     <div

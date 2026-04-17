@@ -300,6 +300,55 @@ export async function enviarNotificacioResolucioSortida(params: {
 }
 
 /**
+ * Notifica als caps d'etapa i direcció que hi ha una nova sortida pendent d'aprovació
+ */
+export async function enviarNotificacioNovaSortida(params: {
+  emailGestor: string
+  nomGestor: string
+  nomProposador: string
+  descripcio: string
+  data: string
+  grups: string[]
+}): Promise<void> {
+  if (!esConfigurat()) {
+    console.log('[email] Resend no configurat, saltant notificació a', params.emailGestor)
+    return
+  }
+
+  const dataFormatada = new Date(params.data + 'T12:00:00').toLocaleDateString('ca-ES', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  })
+
+  const contingut = `
+    <p>Hola, <strong>${params.nomGestor}</strong>!</p>
+    <p><strong>${params.nomProposador}</strong> ha proposat una nova sortida escolar que requereix la teva aprovació.</p>
+    <div class="info-box">
+      <div class="info-row">
+        <span class="info-label">Sortida</span>
+        <span class="info-value">${params.descripcio}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Data</span>
+        <span class="info-value">${dataFormatada}</span>
+      </div>
+      ${params.grups.length > 0 ? `
+      <div class="info-row">
+        <span class="info-label">Grups</span>
+        <span class="info-value">${params.grups.join(', ')}</span>
+      </div>` : ''}
+    </div>
+    <p>Accedeix a SubsCoop per aprovar o rebutjar la proposta.</p>
+  `
+
+  await resend.emails.send({
+    from: FROM,
+    to: params.emailGestor,
+    subject: `Nova sortida pendent d'aprovació — ${params.descripcio}`,
+    html: htmlBase(contingut),
+  })
+}
+
+/**
  * Notifica al docent que la seva absència ha estat aprovada o rebutjada
  */
 export async function enviarNotificacioRessolucioAbsencia(params: {

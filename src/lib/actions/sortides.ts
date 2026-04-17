@@ -2,8 +2,92 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { reassignarSubstitucionsPendentsDia, generarSubstitucionsAcompanyants } from './generar-substitucions'
-import { enviarNotificacioResolucioSortida } from '@/lib/email'
+import { enviarNotificacioResolucioSortida, enviarNotificacioNovaSortida } from '@/lib/email'
 import { crearEsdevenimentSortida, eliminarEsdeveniment } from '@/lib/gcal'
+
+/**
+ * Crea una nova proposta de sortida i notifica els caps d'etapa (responsabilitat
+ * primària) i la direcció (fallback) perquè la revisin.
+ */
+export async function proposarSortida(params: {
+  docentId: string
+  data: string
+  horaInici: string
+  horaFi: string
+  descripcio: string
+  observacions?: string
+  grupsIds: string[]
+}): Promise<{ ok: boolean; sortidaId?: string; error?: string }> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: 'No autenticat' }
+
+  // Verifica que el docentId correspon a l'usuari autenticat
+  const { data: docent } = await supabase
+    .from('docents')
+    .select('id, nom')
+    .eq('email', user.email!)
+    .single()
+  if (!docent || docent.id !== params.docentId) {
+    return { ok: false, error: 'Sense permís' }
+  }
+
+  // Crea la sortida
+  const { data: sortida, error: errSortida } = await supabase
+    .from('sortides')
+    .insert({
+      proposada_per: params.docentId,
+      data: params.data,
+      hora_inici: params.horaInici,
+      hora_fi: params.horaFi,
+      descripcio: params.descripcio.trim(),
+      observacions: params.observacions?.trim() || null,
+      estat: 'proposta',
+    })
+    .select('id')
+    .single()
+
+  if (errSortida || !sortida) return { ok: false, error: errSortida?.message ?? 'Error en crear la sortida' }
+
+  // Associa els grups
+  if (params.grupsIds.length > 0) {
+    const { error: errGrups } = await supabase
+      .from('sortida_grups')
+      .insert(params.grupsIds.map(grupId => ({ sortida_id: sortida.id, grup_id: grupId })))
+    if (errGrups) return { ok: false, error: 'Sortida creada però error en associar grups' }
+  }
+
+  // Recupera els noms dels grups per a la notificació
+  const { data: grups } = await supabase
+    .from('grups')
+    .select('nom')
+    .in('id', params.grupsIds)
+  const grupsNoms = (grups ?? []).map((g: any) => g.nom)
+
+  // Notifica caps d'etapa (responsabilitat primària) + director + sotsdirector (fallback)
+  const { data: gestors } = await supabase
+    .from('docent_rols')
+    .select('docent:docent_id(nom, email)')
+    .in('rol', ['coordinacio_etapa', 'director', 'sotsdirector'])
+
+  const emailsVistos = new Set<string>()
+  for (const g of (gestors ?? []) as any[]) {
+    if (g.docent?.email && !emailsVistos.has(g.docent.email)) {
+      emailsVistos.add(g.docent.email)
+      enviarNotificacioNovaSortida({
+        emailGestor: g.docent.email,
+        nomGestor: g.docent.nom,
+        nomProposador: docent.nom,
+        descripcio: params.descripcio,
+        data: params.data,
+        grups: grupsNoms,
+      }).catch(console.error)
+    }
+  }
+
+  return { ok: true, sortidaId: sortida.id }
+}
 
 /**
  * Aprova o rebutja una sortida escolar.

@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { proposarSortida } from '@/lib/actions/sortides'
 
 interface Grup {
   id: string
@@ -18,7 +18,6 @@ interface Props {
 
 export default function NovaSortidaForm({ docentId, grups }: Props) {
   const router = useRouter()
-  const supabase = createClient()
 
   const [descripcio, setDescripcio] = useState('')
   const [data, setData] = useState('')
@@ -54,41 +53,23 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
 
     setLoading(true)
 
-    const { data: sortida, error: errSortida } = await supabase
-      .from('sortides')
-      .insert({
-        proposada_per: docentId,
-        data,
-        hora_inici: horaInici,
-        hora_fi: horaFi,
-        descripcio: descripcio.trim(),
-        observacions: observacions.trim() || null,
-        estat: 'proposta',
-      })
-      .select('id')
-      .single()
+    const result = await proposarSortida({
+      docentId,
+      data,
+      horaInici,
+      horaFi,
+      descripcio,
+      observacions,
+      grupsIds: grupsSeleccionats,
+    })
 
-    if (errSortida || !sortida) {
-      setError('Error en desar la sortida.')
+    if (!result.ok) {
+      setError(result.error ?? 'Error en proposar la sortida.')
       setLoading(false)
       return
     }
 
-    // Associa grups
-    const { error: errGrups } = await supabase
-      .from('sortida_grups')
-      .insert(grupsSeleccionats.map(grupId => ({
-        sortida_id: sortida.id,
-        grup_id: grupId,
-      })))
-
-    if (errGrups) {
-      setError('Sortida creada però error en associar grups.')
-      setLoading(false)
-      return
-    }
-
-    router.push(`/sortides/${sortida.id}`)
+    router.push(`/sortides/${result.sortidaId}`)
     router.refresh()
   }
 

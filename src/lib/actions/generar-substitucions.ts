@@ -445,16 +445,20 @@ export async function crearAbsencia(params: {
     const gen = await generarSubstitucions(absencia.id)
     if (!gen.ok) console.error('Error generant substitucions:', gen.error)
   } else if (estat === 'pendent' && docentInfo) {
-    const { data: capsPersonal } = await supabase
+    // Notifiquem cap_personal (jerarquia empresa), director i sotsdirector
+    const { data: gestors } = await supabase
       .from('docent_rols')
       .select('docent:docent_id(nom, email)')
-      .eq('rol', 'cap_personal')
+      .in('rol', ['cap_personal', 'director', 'sotsdirector'])
 
-    for (const cp of (capsPersonal ?? []) as any[]) {
-      if (cp.docent?.email) {
+    // Evitar duplicats si un docent té múltiples rols gestors
+    const emailsVistos = new Set<string>()
+    for (const g of (gestors ?? []) as any[]) {
+      if (g.docent?.email && !emailsVistos.has(g.docent.email)) {
+        emailsVistos.add(g.docent.email)
         enviarNotificacioAprovacioPendent({
-          emailGestor: cp.docent.email,
-          nomGestor: cp.docent.nom,
+          emailGestor: g.docent.email,
+          nomGestor: g.docent.nom,
           nomDocent: docentInfo.nom,
           data: params.data,
           motiu: params.motiu,
