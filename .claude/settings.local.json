@@ -6,7 +6,8 @@
       "Bash(cp -r c:/Users/usuario/Downloads/Claude/subscoop_init/public c:/Users/usuario/Downloads/Claude/subscoop/)",
       "Bash(cp -r c:/Users/usuario/Downloads/Claude/subscoop_init/src c:/Users/usuario/Downloads/Claude/subscoop/)",
       "Bash(npm install *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

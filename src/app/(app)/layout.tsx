@@ -15,7 +15,7 @@ export default async function AppLayout({
     redirect('/login')
   }
 
-  // Carrega el docent associat a l'usuari autenticat
+  // Carrega el docent i els seus rols
   const { data: docent } = await supabase
     .from('docents')
     .select('id, nom, email')
@@ -42,10 +42,17 @@ export default async function AppLayout({
     )
   }
 
+  const { data: rolsData } = await supabase
+    .from('docent_rols')
+    .select('rol')
+    .eq('docent_id', docent.id)
+
+  const rols = rolsData?.map(r => r.rol) ?? []
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar — visible només a desktop */}
-      <Sidebar docent={docent} />
+      <Sidebar docent={docent} rols={rols} />
 
       {/* Contingut principal */}
       <main className="flex-1 overflow-y-auto pb-20 lg:pb-0">

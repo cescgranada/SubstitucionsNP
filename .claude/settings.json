@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx supabase *)",
+      "Bash(supabase status *)",
+      "Bash(wait)",
+      "mcp__claude_ai_Supabase__execute_sql"
+    ],
+    "additionalDirectories": [
+      "C:\\Projectes_IA\\Claude\\subscoop\\node_modules\\next"
+    ]
+  }
+}
