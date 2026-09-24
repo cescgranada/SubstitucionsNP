@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "load-horaris": "npx tsx scripts/load-horaris.ts"
+    "load-horaris": "npx tsx --env-file=.env.local scripts/load-horaris.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.2",

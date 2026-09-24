@@ -41,16 +41,35 @@ SKIP_SHEETS = {
     "SUBSTITUCIÓ JORDI",  # Full temporal de substituta, no és horari definitiu
 }
 
-# Normalització de noms (Excel → nom complet)
+# Normalització de noms i substitucions
 NOM_MAP = {
     "VANESSA": "Vanessa Roma",
     "VANESSA ": "Vanessa Roma",
-    "BETO": "Beto Oriol",
+    "BETO": "Beto",
+    "Beto Oriol": "Beto",
+    "Albert Oriol": "Beto",
+    "Albert Oriol ": "Beto",
     "DAVID": "David Lozano",
     "TXELL": "Txell Casadesús",
     "TXELL ": "Txell Casadesús",
     "Gerard": "Gerard Companys",
     "Roberto": "Roberto De Godos",
+    "Africa Benito": "Txell Casadesús",
+    "Africa Benito ": "Txell Casadesús",
+    "Lídia Corral": "Sol",
+    "Lidia Corral": "Sol",
+    "Laia Mestre": "Júlia",
+    "Laia Mestre ": "Júlia",
+    "Clara Nicolau": "Anna Rimbau",
+    "Clara Nicolau ": "Anna Rimbau",
+}
+
+# Docents a ignorar completament (no es processen els seus horaris)
+SKIP_DOCENTS = {
+    "Marta Esteves",
+    "Anna Marsà",
+    "EViP",
+    "EVIP"
 }
 
 # Patrons per detectar tipus d'activitat
@@ -347,8 +366,13 @@ def process_file(filepath, default_etapa):
             print(f"  ⚠ No s'ha trobat nom de docent al full '{sheet_name}', es fa servir el nom del full.")
             docent_name = sheet_name.strip()
         
-        # Normalitzem el nom
+        # Normalitzem el nom i apliquem substitucions
         docent_name = NOM_MAP.get(docent_name, docent_name)
+        
+        # Ignorem si és un dels docents marcats per ometre
+        if docent_name in SKIP_DOCENTS:
+            print(f"  ⚠ S'ignora l'horari de {docent_name} (marcat per ometre).")
+            continue
         
         ws2 = wb[sheet_name]  # Re-open to iterate from start
         entries = process_docent_sheet(ws2, docent_name, default_etapa)
@@ -423,9 +447,9 @@ def main():
     
     # Mapa de fitxers a processar amb la seva etapa per defecte
     files_config = [
-        ("Horaris__EI__Docents__2526.xlsx", "EI"),
-        ("Horaris_EP_12_1-19_6__Docents_2526.xlsx", "EP"),
-        ("Horaris_ESO_Docents_2526.xlsx", "ESO"),
+        ("Horaris_ EI_ Docents_ 2627.xlsx", "EI"),
+        ("Horaris_EP_Docents_2627.xlsx", "EP"),
+        ("Horaris_ESO_Docents_2627.xlsx", "ESO"),
     ]
     
     all_entries = []

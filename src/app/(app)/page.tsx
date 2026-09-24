@@ -16,11 +16,12 @@ function BadgeEstat({ estat }: { estat: string }) {
 export default async function HomePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
 
   const { data: docent } = await supabase
     .from('docents')
     .select('id, nom')
-    .eq('email', user!.email!)
+    .eq('email', user.email!)
     .single()
 
   if (!docent) return null

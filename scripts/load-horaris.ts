@@ -88,7 +88,9 @@ async function main() {
   console.log(`Carregant ${horaris.length} entrades d'horari...`)
 
   // Carregar dades de referència
-  const { data: docentsList } = await supabase.from('docents').select('id, nom, email')
+  console.log('Connectant a Supabase...')
+  const { data: docentsList, error: err1 } = await supabase.from('docents').select('id, nom, email')
+  if (err1) console.error('Error docents:', err1)
   const { data: etapesList } = await supabase.from('etapes').select('id, codi')
   const { data: grupsList } = await supabase.from('grups').select('id, codi')
 
@@ -101,6 +103,7 @@ async function main() {
   const docentPerNom = Object.fromEntries(docentsList.map(d => [d.nom, d.id]))
   const etapaPerCodi = Object.fromEntries(etapesList.map(e => [e.codi, e.id]))
   const grupPerCodi = Object.fromEntries(grupsList.map(g => [g.codi, g.id]))
+  console.log('Dades de referència carregades correctament.')
 
   function getDocentId(nom: string): string | null {
     // Prova per nom complet
