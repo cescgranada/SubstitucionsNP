@@ -170,8 +170,14 @@ export default async function HorariPage() {
               {DIES.map(nomDia => (
                 <th
                   key={nomDia}
-                  className="text-xs font-semibold uppercase tracking-wide py-2 rounded-lg"
-                  style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}
+                  className="text-sm py-2 rounded-lg"
+                  style={{
+                    backgroundColor: 'var(--color-primary)',
+                    color: 'white',
+                    fontFamily: 'var(--font-display)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                  }}
                 >
                   {nomDia}
                 </th>

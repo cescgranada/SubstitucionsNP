@@ -80,7 +80,12 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
         style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}
       >
         <p className="text-xs font-semibold uppercase tracking-wide opacity-70">Escola Cooperativa Nou Patufet</p>
-        <p className="text-lg font-semibold capitalize mt-0.5">{dataFormatada}</p>
+        <p
+          className="text-xl mt-0.5"
+          style={{ fontFamily: 'var(--font-display)', textTransform: 'uppercase', letterSpacing: '0.03em' }}
+        >
+          {dataFormatada}
+        </p>
         {data === avui && (
           <p className="text-xs opacity-70 mt-0.5">Avui</p>
         )}

@@ -1,24 +1,26 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Montserrat:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 :root {
-  /* Paleta Nou Patufet */
-  --color-primary: #1B3A4B;
-  --color-primary-light: #E8EFF3;
-  --color-primary-dark: #122A38;
-  --color-accent: #7FB5D5;
-  --color-accent-light: #EDF5FA;
-  --color-secondary: #F5A623;
-  --color-secondary-light: #FFF3E0;
-  --color-bg: #F8FAFB;
+  /* Paleta Nou Patufet (Navy / Sky Blue) */
+  --color-primary: #094376;
+  --color-primary-light: #E2E8EE;
+  --color-primary-dark: #063258;
+  --color-accent: #A0CAE4;
+  --color-accent-light: #F1F7FB;
+  --color-secondary: #7A98B2;
+  --color-secondary-light: #EDF0F4;
+  --color-bg: #FCFEFE;
   --color-surface: #FFFFFF;
-  --color-text: #1B3A4B;
-  --color-text-secondary: #5A7D8A;
-  --color-border: #D8E3E8;
+  --color-text: #094376;
+  --color-text-secondary: #496D8D;
+  --color-border: #E4EAF0;
   --color-danger: #E74C3C;
   --color-success: #27AE60;
   --color-warning: #F39C12;
-  --color-info: #7FB5D5;
+  --color-info: #A0CAE4;
+  --font-body: 'Montserrat', system-ui, -apple-system, sans-serif;
+  --font-display: 'Bebas Neue', 'Montserrat', sans-serif;
 }
 
 @theme inline {
@@ -37,6 +39,8 @@
   --color-success: var(--color-success);
   --color-warning: var(--color-warning);
   --color-info: var(--color-info);
+  --font-body: var(--font-body);
+  --font-display: var(--font-display);
 }
 
 * {
@@ -46,10 +50,17 @@
 body {
   background-color: var(--color-bg);
   color: var(--color-text);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body);
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Titulars principals: font de banner, majúscules i lletrejat ampli */
+h1 {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 /* Cards */
@@ -84,9 +95,9 @@ body {
 }
 
 .btn-secondary {
-  background-color: transparent;
+  background-color: var(--color-accent);
   color: var(--color-primary);
-  border: 1.5px solid var(--color-primary);
+  border: 1.5px solid var(--color-accent);
   border-radius: 8px;
   padding: 12px 24px;
   font-weight: 500;
@@ -102,7 +113,7 @@ body {
 }
 
 .btn-secondary:hover {
-  background-color: var(--color-primary-light);
+  background-color: var(--color-accent-light);
 }
 
 /* Badges d'estat */

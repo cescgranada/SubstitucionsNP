@@ -55,7 +55,7 @@ export default function CalendariSortides({ any, mes, sortides, mesAnteriorParam
           <Link href="/sortides" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             ← Sortides
           </Link>
-          <h1 className="text-xl font-semibold mt-1 capitalize" style={{ color: 'var(--color-primary)' }}>
+          <h1 className="text-xl font-semibold mt-1" style={{ color: 'var(--color-primary)' }}>
             {NOMS_MESOS[mes - 1].toLowerCase()} {any}
           </h1>
         </div>

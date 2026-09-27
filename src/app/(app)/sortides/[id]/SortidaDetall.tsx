@@ -170,7 +170,7 @@ export default function SortidaDetall({ sortida, docentActualId, esGestor, esPro
               onClick={() => handleDecisio('rebutjada')}
               disabled={!!loading}
               className="btn-secondary flex-1"
-              style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+              style={{ backgroundColor: 'transparent', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
             >
               {loading === 'rebutjada' ? 'Rebutjant...' : 'Rebutjar'}
             </button>

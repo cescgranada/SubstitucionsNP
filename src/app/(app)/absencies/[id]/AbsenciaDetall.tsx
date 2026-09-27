@@ -215,7 +215,7 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
               onClick={() => handleDecisio('rebutjada')}
               disabled={!!loading}
               className="btn-secondary flex-1"
-              style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+              style={{ backgroundColor: 'transparent', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
             >
               {loading === 'rebutjada' ? 'Rebutjant...' : 'Rebutjar'}
             </button>
@@ -395,7 +395,7 @@ function SubstitucioItem({ s }: { s: any }) {
           {s.horari_setmanal?.materia && ` · ${s.horari_setmanal.materia}`}
         </p>
         {s.motiu_proposta_ia && (
-          <p className="text-xs mt-0.5 italic" style={{ color: 'var(--color-info)' }}>
+          <p className="text-xs mt-0.5 italic" style={{ color: 'var(--color-text-secondary)' }}>
             {s.motiu_proposta_ia}
           </p>
         )}

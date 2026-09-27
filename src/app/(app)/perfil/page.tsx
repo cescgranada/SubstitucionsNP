@@ -130,7 +130,7 @@ export default async function PerfilPage() {
         <button
           type="submit"
           className="btn-secondary w-full"
-          style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+          style={{ backgroundColor: 'transparent', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
         >
           Tancar sessió
         </button>
