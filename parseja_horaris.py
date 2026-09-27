@@ -50,18 +50,15 @@ NOM_MAP = {
     "Albert Oriol": "Beto",
     "Albert Oriol ": "Beto",
     "DAVID": "David Lozano",
-    "TXELL": "Txell Casadesús",
-    "TXELL ": "Txell Casadesús",
+    "TXELL": "Africa Benito",
+    "TXELL ": "Africa Benito",
+    "Txell Casadesús": "Africa Benito",
+    "Anna Rimbau": "Clara Nicolau",
+    "Sol Echegaray": "Lídia Corral",
+    "Júlia Ruiz": "Laia Mestre",
+    "Sol": "Lídia Corral",
     "Gerard": "Gerard Companys",
-    "Roberto": "Roberto De Godos",
-    "Africa Benito": "Txell Casadesús",
-    "Africa Benito ": "Txell Casadesús",
-    "Lídia Corral": "Sol",
-    "Lidia Corral": "Sol",
-    "Laia Mestre": "Júlia",
-    "Laia Mestre ": "Júlia",
-    "Clara Nicolau": "Anna Rimbau",
-    "Clara Nicolau ": "Anna Rimbau",
+    "Roberto": "Roberto De Godos"
 }
 
 # Docents a ignorar completament (no es processen els seus horaris)
