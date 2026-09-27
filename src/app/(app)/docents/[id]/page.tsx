@@ -31,10 +31,7 @@ const MOTIUS: Record<string, string> = {
 }
 
 const NOMS_ROL: Record<string, string> = {
-  director: 'Director/a',
-  sotsdirector: 'Sotsdirector/a',
-  cap_personal: 'Cap de personal',
-  coordinacio_etapa: 'Coordinació d\'etapa',
+  equip_directiu: 'Equip directiu',
 }
 
 export default async function DocentDetallPage({ params }: { params: Promise<{ id: string }> }) {
@@ -107,7 +104,7 @@ export default async function DocentDetallPage({ params }: { params: Promise<{ i
   const inicials = docent.nom.split(' ').map((n: string) => n[0]).slice(0, 2).join('')
 
   // Classifica absències
-  const absenciesFutures = (absencies ?? []).filter(a => a.data > avui && !['rebutjada', 'cancel·lada'].includes(a.estat))
+  const absenciesFutures = (absencies ?? []).filter(a => a.data > avui && !['rebutjada', 'cancel·lada', 'eliminada'].includes(a.estat))
   const absenciesPassades = (absencies ?? []).filter(a => a.data <= avui)
 
   function formatRang(data: string, dataFi: string | null): string {
@@ -126,12 +123,14 @@ export default async function DocentDetallPage({ params }: { params: Promise<{ i
     aprovada: 'Aprovada',
     rebutjada: 'Rebutjada',
     'cancel·lada': 'Cancel·lada',
+    eliminada: 'Eliminada',
   }
   const ESTAT_BADGE: Record<string, string> = {
     pendent: 'badge-pendent',
     aprovada: 'badge-aprovada',
     rebutjada: 'badge-rebutjada',
     'cancel·lada': 'badge-cancel-lada',
+    eliminada: 'badge-eliminada',
   }
 
   return (

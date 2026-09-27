@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Sidebar from '@/components/layout/Sidebar'
 import BottomNav from '@/components/layout/BottomNav'
+import { emailDelDomini } from '@/lib/roles'
+import { ToastProvider } from '@/components/ui/Toast'
 
 export default async function AppLayout({
   children,
@@ -13,6 +15,14 @@ export default async function AppLayout({
 
   if (!user) {
     redirect('/login')
+  }
+
+  // Defensa en profunditat: encara que la sessió existeixi (per exemple,
+  // una sessió creada abans d'activar aquesta restricció), no deixem
+  // passar comptes fora del domini del centre.
+  if (!emailDelDomini(user.email)) {
+    await supabase.auth.signOut()
+    redirect('/login?error=domini')
   }
 
   // Carrega el docent i els seus rols
@@ -50,19 +60,21 @@ export default async function AppLayout({
   const rols = rolsData?.map(r => r.rol) ?? []
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Sidebar — visible només a desktop */}
-      <Sidebar docent={docent} rols={rols} />
+    <ToastProvider>
+      <div className="flex h-screen overflow-hidden">
+        {/* Sidebar — visible només a desktop */}
+        <Sidebar docent={docent} rols={rols} />
 
-      {/* Contingut principal */}
-      <main className="flex-1 overflow-y-auto pb-20 lg:pb-0">
-        <div className="max-w-4xl mx-auto px-4 py-6 lg:px-8">
-          {children}
-        </div>
-      </main>
+        {/* Contingut principal */}
+        <main className="flex-1 overflow-y-auto pb-20 lg:pb-0">
+          <div className="max-w-4xl mx-auto px-4 py-6 lg:px-8">
+            {children}
+          </div>
+        </main>
 
-      {/* Navegació inferior — visible només a mòbil */}
-      <BottomNav />
-    </div>
+        {/* Navegació inferior — visible només a mòbil */}
+        <BottomNav />
+      </div>
+    </ToastProvider>
   )
 }

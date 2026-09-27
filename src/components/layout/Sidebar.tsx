@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -16,24 +17,6 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: '/absencies',
-    label: 'Absències',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
-      </svg>
-    ),
-  },
-  {
-    href: '/substitucions',
-    label: 'Substitucions',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-      </svg>
-    ),
-  },
-  {
     href: '/horari',
     label: 'El meu horari',
     icon: (
@@ -42,16 +25,9 @@ const NAV_ITEMS = [
       </svg>
     ),
   },
-  {
-    href: '/sortides',
-    label: 'Sortides',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
-      </svg>
-    ),
-  },
+]
+
+const NAV_ITEMS_FINAL = [
   {
     href: '/docents',
     label: 'Docents',
@@ -72,7 +48,47 @@ const NAV_ITEMS = [
   },
 ]
 
-const ROLS_GESTOR = ['cap_personal', 'director', 'sotsdirector']
+// Grup "Gestió": Absències, Sortides i Substitucions vivien com a 3 enllaços
+// separats al menú — es fusionen en un únic desplegable per no repetir la
+// mateixa idea (comunicar/gestionar una absència o sortida) 3 vegades.
+const GRUP_GESTIO = {
+  label: 'Gestió',
+  icon: (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z" />
+    </svg>
+  ),
+  items: [
+    {
+      href: '/absencies',
+      label: 'Absències',
+      icon: (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+        </svg>
+      ),
+    },
+    {
+      href: '/sortides',
+      label: 'Sortides',
+      icon: (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+        </svg>
+      ),
+    },
+    {
+      href: '/substitucions',
+      label: 'Substitucions',
+      icon: (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+        </svg>
+      ),
+    },
+  ],
+}
 
 interface SidebarProps {
   docent: { id: string; nom: string; email: string }
@@ -80,16 +96,25 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ docent, rols }: SidebarProps) {
-  const esGestor = rols.some(r => ROLS_GESTOR.includes(r))
+  const esGestor = rols.includes('equip_directiu')
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
+
+  const dinsGrupGestio = GRUP_GESTIO.items.some(item => pathname.startsWith(item.href)) ||
+    pathname.startsWith('/substitucions/full')
+  const [gestioOberta, setGestioOberta] = useState(dinsGrupGestio)
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/login')
     router.refresh()
   }
+
+  const estilLink = (actiu: boolean) => ({
+    color: actiu ? 'white' : 'rgba(255,255,255,0.6)',
+    backgroundColor: actiu ? 'rgba(127,181,213,0.2)' : 'transparent',
+  })
 
   return (
     <aside
@@ -124,29 +149,90 @@ export default function Sidebar({ docent, rols }: SidebarProps) {
               key={item.href}
               href={item.href}
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
-              style={{
-                color: isActive ? 'white' : 'rgba(255,255,255,0.6)',
-                backgroundColor: isActive ? 'rgba(127,181,213,0.2)' : 'transparent',
-              }}
+              style={estilLink(isActive)}
             >
               {item.icon}
               {item.label}
             </Link>
           )
         })}
+
+        {/* Grup desplegable: Absències / Sortides / Substitucions */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setGestioOberta(!gestioOberta)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+            style={estilLink(dinsGrupGestio && !gestioOberta)}
+            aria-expanded={gestioOberta}
+          >
+            {GRUP_GESTIO.icon}
+            <span className="flex-1 text-left">{GRUP_GESTIO.label}</span>
+            <svg
+              className="w-4 h-4 transition-transform flex-shrink-0"
+              style={{ transform: gestioOberta ? 'rotate(180deg)' : 'none' }}
+              fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+          {gestioOberta && (
+            <div className="mt-1 space-y-1 pl-4">
+              {GRUP_GESTIO.items.map((item) => {
+                const isActive = pathname.startsWith(item.href)
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                    style={estilLink(isActive)}
+                  >
+                    {item.icon}
+                    {item.label}
+                  </Link>
+                )
+              })}
+              {esGestor && (
+                <Link
+                  href="/substitucions/full"
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                  style={estilLink(pathname.startsWith('/substitucions/full'))}
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" />
+                  </svg>
+                  Full del dia
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+
+        {NAV_ITEMS_FINAL.map((item) => {
+          const isActive = pathname.startsWith(item.href)
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+              style={estilLink(isActive)}
+            >
+              {item.icon}
+              {item.label}
+            </Link>
+          )
+        })}
+
         {esGestor && (
           <Link
-            href="/substitucions/full"
+            href="/dashboard"
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
-            style={{
-              color: pathname.startsWith('/substitucions/full') ? 'white' : 'rgba(255,255,255,0.6)',
-              backgroundColor: pathname.startsWith('/substitucions/full') ? 'rgba(127,181,213,0.2)' : 'transparent',
-            }}
+            style={estilLink(pathname.startsWith('/dashboard'))}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
             </svg>
-            Full substitucions
+            Dashboard
           </Link>
         )}
       </nav>

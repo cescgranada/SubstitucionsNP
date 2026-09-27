@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { enviarNotificacioSubstitut } from '@/lib/email'
+import { esEquipDirectiu } from '@/lib/roles'
 
 /**
  * Confirma una substitució, assigna el substitut i envia email de notificació.
@@ -14,24 +15,33 @@ export async function confirmarSubstitucio(params: {
 }): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient()
 
-  // Verifica que qui confirma és gestor
+  // Verifica que qui confirma és de l'equip directiu
   const { data: rols } = await supabase
     .from('docent_rols')
     .select('rol')
     .eq('docent_id', params.docentGestorId)
 
-  const esGestor = rols?.some(r =>
-    ['cap_personal', 'director', 'sotsdirector', 'coordinacio_etapa'].includes(r.rol)
-  )
-  if (!esGestor) return { ok: false, error: 'Sense permís per confirmar substitucions' }
+  if (!esEquipDirectiu(rols)) return { ok: false, error: 'Sense permís per confirmar substitucions' }
 
-  // Actualitza la substitució
+  const { data: actual } = await supabase
+    .from('substitucions')
+    .select('estat')
+    .eq('id', params.substitucioId)
+    .single()
+
+  if (!actual) return { ok: false, error: 'Substitució no trobada' }
+  if (actual.estat === 'eliminada') return { ok: false, error: 'Aquesta substitució ha estat eliminada' }
+
+  // Actualitza la substitució. La validació final i l'assignació real
+  // del substitut sempre la fa, manualment, un membre de l'equip directiu
+  // (verificat més amunt) — queda registrat qui i quan.
   const { error } = await supabase
     .from('substitucions')
     .update({
       substitut_id: params.substitutId,
       estat: 'confirmada',
       confirmat_per: params.docentGestorId,
+      confirmat_at: new Date().toISOString(),
       feina_substitut: params.feinaSubstitut || null,
     })
     .eq('id', params.substitucioId)
@@ -76,6 +86,48 @@ export async function confirmarSubstitucio(params: {
       feinaSubstitut: substitucio.feina_substitut ?? undefined,
     }).catch(console.error)
   }
+
+  return { ok: true }
+}
+
+/**
+ * Marca una franja com que no necessita substitut ("No cal substitució").
+ * Igual que confirmarSubstitucio, és una decisió manual reservada a
+ * l'equip directiu, i queda registrat qui l'ha presa i quan.
+ */
+export async function marcarSenseSubstitucio(
+  substitucioId: string,
+  docentGestorId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient()
+
+  const { data: rols } = await supabase
+    .from('docent_rols')
+    .select('rol')
+    .eq('docent_id', docentGestorId)
+
+  if (!esEquipDirectiu(rols)) return { ok: false, error: 'Sense permís per fer aquest canvi' }
+
+  const { data: actual } = await supabase
+    .from('substitucions')
+    .select('estat')
+    .eq('id', substitucioId)
+    .single()
+
+  if (!actual) return { ok: false, error: 'Substitució no trobada' }
+  if (actual.estat === 'eliminada') return { ok: false, error: 'Aquesta substitució ha estat eliminada' }
+
+  const { error } = await supabase
+    .from('substitucions')
+    .update({
+      estat: 'no_cal',
+      substitut_id: null,
+      confirmat_per: docentGestorId,
+      confirmat_at: new Date().toISOString(),
+    })
+    .eq('id', substitucioId)
+
+  if (error) return { ok: false, error: error.message }
 
   return { ok: true }
 }

@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { reassignarSubstitucionsPendentsDia, generarSubstitucionsAcompanyants } from './generar-substitucions'
 import { enviarNotificacioResolucioSortida, enviarNotificacioNovaSortida } from '@/lib/email'
 import { crearEsdevenimentSortida, eliminarEsdeveniment } from '@/lib/gcal'
+import { esEquipDirectiu } from '@/lib/roles'
 
 /**
  * Crea una nova proposta de sortida i notifica els caps d'etapa (responsabilitat
@@ -65,11 +66,11 @@ export async function proposarSortida(params: {
     .in('id', params.grupsIds)
   const grupsNoms = (grups ?? []).map((g: any) => g.nom)
 
-  // Notifica caps d'etapa (responsabilitat primària) + director + sotsdirector (fallback)
+  // Notifica tot l'equip directiu
   const { data: gestors } = await supabase
     .from('docent_rols')
     .select('docent:docent_id(nom, email)')
-    .in('rol', ['coordinacio_etapa', 'director', 'sotsdirector'])
+    .eq('rol', 'equip_directiu')
 
   const emailsVistos = new Set<string>()
   for (const g of (gestors ?? []) as any[]) {
@@ -102,16 +103,13 @@ export async function actualitzarEstatSortida(
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient()
 
-  // Verifica que qui aprova és gestor
+  // Verifica que qui aprova és de l'equip directiu
   const { data: rols } = await supabase
     .from('docent_rols')
     .select('rol')
     .eq('docent_id', docentGestorId)
 
-  const esGestor = rols?.some(r =>
-    ['director', 'sotsdirector', 'coordinacio_etapa'].includes(r.rol)
-  )
-  if (!esGestor) return { ok: false, error: 'Sense permís per gestionar sortides' }
+  if (!esEquipDirectiu(rols)) return { ok: false, error: 'Sense permís per gestionar sortides' }
 
   const [{ data: sortida }, { data: gestor }] = await Promise.all([
     supabase
@@ -191,6 +189,66 @@ export async function actualitzarEstatSortida(
   if (nouEstat === 'rebutjada') {
     const googleEventId = (sortida as any)?.google_event_id
     if (googleEventId) eliminarEsdeveniment(googleEventId).catch(console.error)
+  }
+
+  return { ok: true }
+}
+
+/**
+ * Elimina una sortida. No s'esborra mai de la base de dades: es marca
+ * amb estat 'eliminada' i queda registrat qui ho ha fet i quan, de
+ * manera que sempre es pot consultar l'historial d'eliminacions.
+ * - DOCENT: només la seva pròpia proposta i només mentre estigui en estat 'proposta'.
+ * - EQUIP_DIRECTIU: qualsevol sortida, en qualsevol estat.
+ * La RLS aplica la mateixa regla a nivell de base de dades (no permet
+ * cap DELETE físic sobre la taula).
+ */
+export async function eliminarSortida(
+  sortidaId: string,
+  docentActualId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient()
+
+  const { data: sortida } = await supabase
+    .from('sortides')
+    .select('id, proposada_per, estat, google_event_id')
+    .eq('id', sortidaId)
+    .single()
+
+  if (!sortida) return { ok: false, error: 'Sortida no trobada' }
+  if (sortida.estat === 'eliminada') return { ok: false, error: 'Aquesta sortida ja està eliminada' }
+
+  const { data: rols } = await supabase
+    .from('docent_rols')
+    .select('rol')
+    .eq('docent_id', docentActualId)
+
+  const potEliminar = esEquipDirectiu(rols) ||
+    (sortida.proposada_per === docentActualId && sortida.estat === 'proposta')
+
+  if (!potEliminar) return { ok: false, error: 'Sense permís per eliminar aquesta sortida' }
+
+  // Les substitucions generades (p. ex. per cobrir els acompanyants) deixen
+  // de tenir sentit un cop retirada la sortida original, però es marquen
+  // com a eliminades (no s'esborren) per mantenir-ne la traçabilitat.
+  await supabase
+    .from('substitucions')
+    .update({ estat: 'eliminada', eliminada_per: docentActualId, eliminada_at: new Date().toISOString() })
+    .eq('sortida_id', sortidaId)
+
+  const { error } = await supabase
+    .from('sortides')
+    .update({
+      estat: 'eliminada',
+      eliminada_per: docentActualId,
+      eliminada_at: new Date().toISOString(),
+    })
+    .eq('id', sortidaId)
+
+  if (error) return { ok: false, error: error.message }
+
+  if (sortida.google_event_id) {
+    eliminarEsdeveniment(sortida.google_event_id).catch(console.error)
   }
 
   return { ok: true }

@@ -37,8 +37,8 @@ export default function AgendaDia({ substitucions, dataSeleccionada }: Props) {
 
   const filtrades = substitucions.filter(s => s.data === data)
 
-  const pendents = filtrades.filter(s => s.estat !== 'confirmada')
-  const confirmades = filtrades.filter(s => s.estat === 'confirmada')
+  const pendents = filtrades.filter(s => s.estat === 'pendent' || s.estat === 'proposta_ia')
+  const resoltes = filtrades.filter(s => s.estat === 'confirmada' || s.estat === 'no_cal')
 
   return (
     <section>
@@ -76,13 +76,13 @@ export default function AgendaDia({ substitucions, dataSeleccionada }: Props) {
               </div>
             </div>
           )}
-          {confirmades.length > 0 && (
+          {resoltes.length > 0 && (
             <div>
               <p className="text-xs font-medium mb-2" style={{ color: 'var(--color-success)' }}>
-                Confirmades ({confirmades.length})
+                Resoltes ({resoltes.length})
               </p>
               <div className="space-y-2">
-                {confirmades.map(s => <SubstitucioAgendaItem key={s.id} s={s} />)}
+                {resoltes.map(s => <SubstitucioAgendaItem key={s.id} s={s} />)}
               </div>
             </div>
           )}
@@ -126,6 +126,10 @@ function SubstitucioAgendaItem({ s }: { s: Substitucio }) {
           <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--color-success)' }}>
             Substitut/a: {s.substitut.nom}
           </p>
+        ) : s.estat === 'no_cal' ? (
+          <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
+            No calia substitut
+          </p>
         ) : (
           <p className="text-xs mt-0.5" style={{ color: 'var(--color-warning)' }}>
             Sense substitut assignat
@@ -133,7 +137,10 @@ function SubstitucioAgendaItem({ s }: { s: Substitucio }) {
         )}
       </div>
       <span className={`badge badge-${s.estat} flex-shrink-0`}>
-        {s.estat === 'pendent' ? 'Pendent' : s.estat === 'proposta_ia' ? 'Proposta' : 'Confirmada'}
+        {s.estat === 'pendent' ? 'Pendent'
+          : s.estat === 'proposta_ia' ? 'Proposta'
+          : s.estat === 'no_cal' ? 'No cal'
+          : 'Confirmada'}
       </span>
     </Link>
   )

@@ -3,10 +3,7 @@ import { redirect } from 'next/navigation'
 
 const NOMS_ROL: Record<string, string> = {
   docent: 'Docent',
-  coordinacio_etapa: 'Coordinació d\'etapa',
-  cap_personal: 'Cap de personal',
-  director: 'Director/a',
-  sotsdirector: 'Sotsdirector/a',
+  equip_directiu: 'Equip directiu',
 }
 
 export default async function PerfilPage() {

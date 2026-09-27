@@ -57,7 +57,8 @@ export default async function LoginPage({
             >
               {error === 'auth_error' && 'Hi ha hagut un error d\'autenticació. Torna-ho a provar.'}
               {error === 'no_docent' && 'El teu compte no està registrat al sistema. Contacta amb direcció.'}
-              {error !== 'auth_error' && error !== 'no_docent' && 'Error inesperat. Torna-ho a provar.'}
+              {error === 'domini' && 'Només es pot entrar amb un compte de Google del domini @noupatufet.coop.'}
+              {error !== 'auth_error' && error !== 'no_docent' && error !== 'domini' && 'Error inesperat. Torna-ho a provar.'}
             </div>
           )}
 

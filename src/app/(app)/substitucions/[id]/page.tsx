@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import SubstitucioDetall from './SubstitucioDetall'
+import { esEquipDirectiu } from '@/lib/roles'
 
 export default async function SubstitucioPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -27,6 +28,7 @@ export default async function SubstitucioPage({ params }: { params: Promise<{ id
         grup:grup_id(nom),
         parella_docent:parella_docent_id(nom)
       ),
+      eliminador:eliminada_per(nom),
       absencia:absencia_id(
         data, motiu, tot_el_dia,
         docent:docent_id(id, nom)
@@ -42,15 +44,13 @@ export default async function SubstitucioPage({ params }: { params: Promise<{ id
     .select('rol')
     .eq('docent_id', docent.id)
 
-  const esGestor = rols?.some(r =>
-    ['cap_personal', 'director', 'sotsdirector', 'coordinacio_etapa'].includes(r.rol)
-  )
+  const esGestor = esEquipDirectiu(rols)
 
   const esDocentAbsent = substitucio.absencia?.docent?.id === docent.id
 
   // Candidats per a la substitució (si és gestor i no confirmada)
   let candidats: any[] = []
-  if (esGestor && substitucio.estat !== 'confirmada') {
+  if (esGestor && ['pendent', 'proposta_ia'].includes(substitucio.estat)) {
     const franjaId = substitucio.horari_setmanal?.franja?.id
     const dataSubst = substitucio.data
     const diaJS = new Date(dataSubst + 'T12:00:00').getDay()
