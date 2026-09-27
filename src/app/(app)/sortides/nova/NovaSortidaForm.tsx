@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { proposarSortida } from '@/lib/actions/sortides'
+import { useToast } from '@/components/ui/Toast'
 
 interface Grup {
   id: string
@@ -18,6 +19,7 @@ interface Props {
 
 export default function NovaSortidaForm({ docentId, grups }: Props) {
   const router = useRouter()
+  const { showToast } = useToast()
 
   const [descripcio, setDescripcio] = useState('')
   const [data, setData] = useState('')
@@ -27,6 +29,9 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
   const [observacions, setObservacions] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // Guarda addicional a `loading`: evita un doble enviament si l'usuari fa
+  // doble clic abans que React torni a renderitzar el botó com a disabled.
+  const enviantRef = useRef(false)
 
   const toggleGrup = (id: string) => {
     setGrupsSeleccionats(prev =>
@@ -44,6 +49,7 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (enviantRef.current) return
     setError('')
 
     if (!descripcio.trim()) { setError('Cal una descripció.'); return }
@@ -51,26 +57,37 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
     if (grupsSeleccionats.length === 0) { setError('Selecciona almenys un grup.'); return }
     if (horaInici >= horaFi) { setError('L\'hora de fi ha de ser posterior a la d\'inici.'); return }
 
+    enviantRef.current = true
     setLoading(true)
 
-    const result = await proposarSortida({
-      docentId,
-      data,
-      horaInici,
-      horaFi,
-      descripcio,
-      observacions,
-      grupsIds: grupsSeleccionats,
-    })
+    try {
+      const result = await proposarSortida({
+        docentId,
+        data,
+        horaInici,
+        horaFi,
+        descripcio,
+        observacions,
+        grupsIds: grupsSeleccionats,
+      })
 
-    if (!result.ok) {
-      setError(result.error ?? 'Error en proposar la sortida.')
+      if (!result.ok) {
+        setError(result.error ?? 'Error en proposar la sortida.')
+        setLoading(false)
+        enviantRef.current = false
+        return
+      }
+
+      showToast('Sortida proposada correctament.')
+      router.push(`/sortides/${result.sortidaId}`)
+      router.refresh()
+    } catch (err: unknown) {
+      console.error(err)
+      const missatge = err instanceof Error ? err.message : String(err)
+      setError("S'ha produït un error inesperat: " + missatge)
       setLoading(false)
-      return
+      enviantRef.current = false
     }
-
-    router.push(`/sortides/${result.sortidaId}`)
-    router.refresh()
   }
 
   return (
@@ -185,10 +202,25 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
       )}
 
       <div className="flex gap-3 pt-2">
-        <a href="/sortides" className="btn-secondary flex-1 text-center">
+        <a
+          href="/sortides"
+          className="btn-secondary flex-1 text-center"
+          style={loading ? { pointerEvents: 'none', opacity: 0.6 } : undefined}
+        >
           Cancel·lar
         </a>
-        <button type="submit" disabled={loading} className="btn-primary flex-1">
+        <button
+          type="submit"
+          disabled={loading}
+          className="btn-primary flex-1 flex items-center justify-center gap-2"
+          style={{ cursor: loading ? 'not-allowed' : 'pointer' }}
+        >
+          {loading && (
+            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          )}
           {loading ? 'Enviant...' : 'Proposar sortida'}
         </button>
       </div>

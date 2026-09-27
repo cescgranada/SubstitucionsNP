@@ -80,7 +80,12 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
         style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}
       >
         <p className="text-xs font-semibold uppercase tracking-wide opacity-70">Escola Cooperativa Nou Patufet</p>
-        <p className="text-lg font-semibold capitalize mt-0.5">{dataFormatada}</p>
+        <p
+          className="text-xl mt-0.5"
+          style={{ fontFamily: 'var(--font-display)', textTransform: 'uppercase', letterSpacing: '0.03em' }}
+        >
+          {dataFormatada}
+        </p>
         {data === avui && (
           <p className="text-xs opacity-70 mt-0.5">Avui</p>
         )}
@@ -109,7 +114,7 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
             </div>
             <div className="card text-center">
               <p className="text-2xl font-bold" style={{ color: 'var(--color-warning)' }}>
-                {subsInicials.filter(s => s.estat !== 'confirmada').length}
+                {subsInicials.filter(s => s.estat === 'pendent' || s.estat === 'proposta_ia').length}
               </p>
               <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>Pendents</p>
             </div>
@@ -161,13 +166,18 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
                         <span className="font-medium" style={{ color: s.estat === 'confirmada' ? 'var(--color-success)' : 'var(--color-accent)' }}>
                           {s.substitut.nom}
                         </span>
+                      ) : s.estat === 'no_cal' ? (
+                        <span style={{ color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>No cal</span>
                       ) : (
                         <span style={{ color: 'var(--color-warning)', fontStyle: 'italic' }}>Pendent</span>
                       )}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
                       <span className={`badge badge-${s.estat}`} style={{ fontSize: '11px' }}>
-                        {s.estat === 'confirmada' ? 'Confirmada' : s.estat === 'proposta_ia' ? 'Proposta' : 'Pendent'}
+                        {s.estat === 'confirmada' ? 'Confirmada'
+                          : s.estat === 'proposta_ia' ? 'Proposta'
+                          : s.estat === 'no_cal' ? 'No cal'
+                          : 'Pendent'}
                       </span>
                     </td>
                   </tr>

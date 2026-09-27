@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import AbsenciaDetall from './AbsenciaDetall'
+import { esEquipDirectiu } from '@/lib/roles'
 
 export default async function AbsenciaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -20,7 +21,8 @@ export default async function AbsenciaPage({ params }: { params: Promise<{ id: s
     .select(`
       *,
       docent:docent_id(id, nom, email),
-      aprovador:aprovat_per(nom)
+      aprovador:aprovat_per(nom),
+      eliminador:eliminada_per(nom)
     `)
     .eq('id', id)
     .single()
@@ -32,9 +34,7 @@ export default async function AbsenciaPage({ params }: { params: Promise<{ id: s
     .select('rol')
     .eq('docent_id', docent.id)
 
-  const esGestor = rols?.some(r =>
-    ['cap_personal', 'director', 'sotsdirector'].includes(r.rol)
-  )
+  const esGestor = esEquipDirectiu(rols)
 
   // Substitucions generades per aquesta absència
   const { data: substitucions } = await supabase

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { actualitzarEstatAbsencia, cancellarAbsencia } from '@/lib/actions/generar-substitucions'
+import { actualitzarEstatAbsencia, cancellarAbsencia, eliminarAbsencia } from '@/lib/actions/generar-substitucions'
 
 const MOTIUS: Record<string, string> = {
   medic: 'Mèdic',
@@ -15,6 +15,7 @@ const BADGE_ESTAT: Record<string, string> = {
   aprovada: 'badge-aprovada',
   rebutjada: 'badge-rebutjada',
   'cancel·lada': 'badge-cancel-lada',
+  eliminada: 'badge-eliminada',
 }
 
 const TEXT_ESTAT: Record<string, string> = {
@@ -22,6 +23,13 @@ const TEXT_ESTAT: Record<string, string> = {
   aprovada: 'Aprovada',
   rebutjada: 'Rebutjada',
   'cancel·lada': 'Cancel·lada',
+  eliminada: 'Eliminada',
+}
+
+function formatDataHora(iso: string): string {
+  return new Date(iso).toLocaleDateString('ca-ES', {
+    day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
 }
 
 function formatData(data: string, dataFi: string | null): string {
@@ -53,14 +61,20 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [confirmantCancel, setConfirmantCancel] = useState(false)
+  const [confirmantEliminar, setConfirmantEliminar] = useState(false)
 
   const esPropietari = absencia.docent?.id === docentActualId
   const esMultiDia = absencia.data_fi && absencia.data_fi !== absencia.data
+  const estaEliminada = absencia.estat === 'eliminada'
 
   const avui = new Date().toISOString().split('T')[0]
   const potCancel = esPropietari &&
     ['pendent', 'aprovada'].includes(absencia.estat) &&
     absencia.data >= avui
+
+  // DOCENT: només la pròpia i mentre estigui pendent. EQUIP_DIRECTIU: sempre.
+  const potEliminar = !estaEliminada &&
+    (esGestor || (esPropietari && absencia.estat === 'pendent'))
 
   const handleDecisio = async (nouEstat: 'aprovada' | 'rebutjada') => {
     setLoading(nouEstat)
@@ -88,6 +102,21 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
     router.refresh()
     setLoading(null)
     setConfirmantCancel(false)
+  }
+
+  const handleEliminar = async () => {
+    setLoading('eliminar')
+    setError('')
+    const result = await eliminarAbsencia(absencia.id, docentActualId)
+    if (!result.ok) {
+      setError(result.error ?? 'Error inesperat')
+      setLoading(null)
+      setConfirmantEliminar(false)
+      return
+    }
+    router.refresh()
+    setLoading(null)
+    setConfirmantEliminar(false)
   }
 
   // Agrupa substitucions per data si és multi-dia
@@ -147,6 +176,19 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
               <dd className="font-medium">{absencia.aprovador.nom}</dd>
             </div>
           )}
+          {estaEliminada && absencia.eliminador && (
+            <div className="flex justify-between">
+              <dt style={{ color: 'var(--color-text-secondary)' }}>Eliminada per</dt>
+              <dd className="font-medium text-right">
+                {absencia.eliminador.nom}
+                {absencia.eliminada_at && (
+                  <span className="block text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    {formatDataHora(absencia.eliminada_at)}
+                  </span>
+                )}
+              </dd>
+            </div>
+          )}
           {absencia.observacions && (
             <div>
               <dt className="mb-1" style={{ color: 'var(--color-text-secondary)' }}>Observacions</dt>
@@ -173,7 +215,7 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
               onClick={() => handleDecisio('rebutjada')}
               disabled={!!loading}
               className="btn-secondary flex-1"
-              style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+              style={{ backgroundColor: 'transparent', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
             >
               {loading === 'rebutjada' ? 'Rebutjant...' : 'Rebutjar'}
             </button>
@@ -234,6 +276,55 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
                 }}
               >
                 {loading === 'cancel·lar' ? 'Cancel·lant...' : 'Sí, cancel·lar'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Botó eliminar */}
+        {potEliminar && !confirmantEliminar && (
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--color-border)' }}>
+            <button
+              onClick={() => setConfirmantEliminar(true)}
+              className="text-sm font-medium"
+              style={{ color: 'var(--color-danger)' }}
+            >
+              Eliminar aquesta absència
+            </button>
+          </div>
+        )}
+
+        {/* Confirmació eliminació */}
+        {confirmantEliminar && (
+          <div className="mt-4 pt-4 border-t space-y-3" style={{ borderColor: 'var(--color-border)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+              Aquesta absència quedarà marcada com a eliminada (amb el teu nom i la data) i deixarà
+              de comptar, però quedarà consultable a l&apos;historial.
+              {substitucions.length > 0 && ` Es descartaran ${substitucions.length} substitució${substitucions.length !== 1 ? 'ns' : ''} associada${substitucions.length !== 1 ? 'des' : ''}.`}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmantEliminar(false)}
+                disabled={!!loading}
+                className="btn-secondary flex-1 text-sm"
+                style={{ padding: '8px 16px', minHeight: '36px' }}
+              >
+                Enrere
+              </button>
+              <button
+                onClick={handleEliminar}
+                disabled={!!loading}
+                className="flex-1 text-sm rounded-lg font-medium"
+                style={{
+                  padding: '8px 16px',
+                  minHeight: '36px',
+                  backgroundColor: 'var(--color-danger)',
+                  color: 'white',
+                  border: 'none',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {loading === 'eliminar' ? 'Eliminant...' : 'Sí, eliminar'}
               </button>
             </div>
           </div>
@@ -304,7 +395,7 @@ function SubstitucioItem({ s }: { s: any }) {
           {s.horari_setmanal?.materia && ` · ${s.horari_setmanal.materia}`}
         </p>
         {s.motiu_proposta_ia && (
-          <p className="text-xs mt-0.5 italic" style={{ color: 'var(--color-info)' }}>
+          <p className="text-xs mt-0.5 italic" style={{ color: 'var(--color-text-secondary)' }}>
             {s.motiu_proposta_ia}
           </p>
         )}
@@ -313,6 +404,10 @@ function SubstitucioItem({ s }: { s: any }) {
             {s.estat === 'confirmada' ? 'Substitut/a: ' : 'Proposat/da: '}
             <strong>{s.substitut.nom}</strong>
           </p>
+        ) : s.estat === 'no_cal' ? (
+          <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
+            No calia substitut
+          </p>
         ) : (
           <p className="text-xs mt-0.5" style={{ color: 'var(--color-warning)' }}>
             Sense substitut assignat
@@ -320,7 +415,11 @@ function SubstitucioItem({ s }: { s: any }) {
         )}
       </div>
       <span className={`badge badge-${s.estat} flex-shrink-0`}>
-        {s.estat === 'pendent' ? 'Pendent' : s.estat === 'proposta_ia' ? 'Proposta' : 'Confirmada'}
+        {s.estat === 'pendent' ? 'Pendent'
+          : s.estat === 'proposta_ia' ? 'Proposta'
+          : s.estat === 'eliminada' ? 'Eliminada'
+          : s.estat === 'no_cal' ? 'No cal'
+          : 'Confirmada'}
       </span>
     </a>
   )

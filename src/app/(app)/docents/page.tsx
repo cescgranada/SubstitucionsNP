@@ -2,10 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 
 const ROLS_LABEL: Record<string, string> = {
-  director: 'Director/a',
-  sotsdirector: 'Sotsdirector/a',
-  cap_personal: 'Cap de personal',
-  coordinacio_etapa: 'Coordinació',
+  equip_directiu: 'Equip directiu',
   docent: 'Docent',
 }
 
@@ -29,7 +26,7 @@ export default async function DocentsPage() {
       docent_etapes(
         etapa:etapa_id(id, codi, nom)
       ),
-      docent_rols(rol, etapa_id)
+      docent_rols(rol, etapa_id, nom_carrec)
     `)
     .eq('actiu', true)
     .order('nom')
@@ -128,10 +125,7 @@ export default async function DocentsPage() {
               const estaAbsent = absentAvui.has(d.id)
               const proxima = proximaAbsencia.get(d.id)
               const rols = (d.docent_rols as any[]) ?? []
-              const rolPrincipal = rols
-                .filter(r => r.rol !== 'docent')
-                .sort(r => ['director', 'sotsdirector', 'cap_personal', 'coordinacio_etapa'].indexOf(r.rol))
-                [0]?.rol
+              const rolPrincipal = rols.filter(r => r.rol !== 'docent')[0]
 
               return (
                 <Link
@@ -156,7 +150,7 @@ export default async function DocentsPage() {
                       </p>
                       {rolPrincipal && (
                         <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                          {ROLS_LABEL[rolPrincipal]}
+                          {rolPrincipal.nom_carrec ?? ROLS_LABEL[rolPrincipal.rol]}
                         </p>
                       )}
                     </div>

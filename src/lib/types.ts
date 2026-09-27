@@ -38,7 +38,8 @@ export type DocentEtapa = {
   etapa_id: string
 }
 
-export type Rol = 'docent' | 'coordinacio_etapa' | 'cap_personal' | 'director' | 'sotsdirector'
+import type { Rol } from './roles'
+export type { Rol }
 
 export type DocentRol = {
   id: string
@@ -65,7 +66,7 @@ export type HorariSetmanal = {
 }
 
 export type MotiuAbsencia = 'medic' | 'dia_personal' | 'formacio'
-export type EstatAbsencia = 'pendent' | 'aprovada' | 'rebutjada'
+export type EstatAbsencia = 'pendent' | 'aprovada' | 'rebutjada' | 'cancel·lada' | 'eliminada'
 
 export type Absencia = {
   id: string
@@ -79,10 +80,12 @@ export type Absencia = {
   aprovat_per: string | null
   data_aprovacio: string | null
   observacions: string | null
+  eliminada_per: string | null
+  eliminada_at: string | null
   created_at: string
 }
 
-export type EstatSortida = 'proposta' | 'aprovada' | 'rebutjada'
+export type EstatSortida = 'proposta' | 'aprovada' | 'rebutjada' | 'eliminada'
 
 export type Sortida = {
   id: string
@@ -96,6 +99,8 @@ export type Sortida = {
   data_aprovacio: string | null
   observacions: string | null
   google_event_id: string | null
+  eliminada_per: string | null
+  eliminada_at: string | null
   created_at: string
 }
 
@@ -111,7 +116,7 @@ export type SortidaAcompanyant = {
   docent_id: string
 }
 
-export type EstatSubstitucio = 'pendent' | 'proposta_ia' | 'confirmada'
+export type EstatSubstitucio = 'pendent' | 'proposta_ia' | 'confirmada' | 'no_cal' | 'eliminada'
 
 export type Substitucio = {
   id: string
@@ -124,8 +129,11 @@ export type Substitucio = {
   proposat_per_ia: boolean
   motiu_proposta_ia: string | null
   confirmat_per: string | null
+  confirmat_at: string | null
   feina_substitut: string | null
   google_event_id: string | null
+  eliminada_per: string | null
+  eliminada_at: string | null
   created_at: string
   updated_at: string
 }

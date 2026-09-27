@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import { esEquipDirectiu } from '@/lib/roles'
 
 function BadgeEstat({ estat }: { estat: string }) {
   return (
@@ -42,6 +43,7 @@ export default async function HomePage() {
       )
     `)
     .eq('substitut_id', docent.id)
+    .neq('estat', 'eliminada')
     .gte('data', avui)
     .order('data', { ascending: true })
     .limit(3)
@@ -52,9 +54,7 @@ export default async function HomePage() {
     .select('rol')
     .eq('docent_id', docent.id)
 
-  const esGestor = rols?.some(r =>
-    ['cap_personal', 'director', 'sotsdirector', 'coordinacio_etapa'].includes(r.rol)
-  )
+  const esGestor = esEquipDirectiu(rols)
 
   const { data: absenciesPendents } = esGestor
     ? await supabase
@@ -101,10 +101,29 @@ export default async function HomePage() {
       </div>
 
       {/* Accions ràpides */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
+        <Link
+          href="/sortides/nova"
+          className="card flex flex-col items-center justify-center gap-2 py-4 px-1 text-center hover:shadow-md transition-shadow"
+          style={{ textDecoration: 'none' }}
+        >
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ backgroundColor: 'var(--color-primary-light)' }}
+          >
+            <svg className="w-5 h-5" style={{ color: 'var(--color-primary)' }} fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+            </svg>
+          </div>
+          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+            Comunicar sortida
+          </span>
+        </Link>
+
         <Link
           href="/absencies/nova"
-          className="card flex flex-col items-center justify-center gap-2 py-5 text-center hover:shadow-md transition-shadow"
+          className="card flex flex-col items-center justify-center gap-2 py-4 px-1 text-center hover:shadow-md transition-shadow"
           style={{ textDecoration: 'none' }}
         >
           <div
@@ -122,7 +141,7 @@ export default async function HomePage() {
 
         <Link
           href="/substitucions"
-          className="card flex flex-col items-center justify-center gap-2 py-5 text-center hover:shadow-md transition-shadow"
+          className="card flex flex-col items-center justify-center gap-2 py-4 px-1 text-center hover:shadow-md transition-shadow"
           style={{ textDecoration: 'none' }}
         >
           <div

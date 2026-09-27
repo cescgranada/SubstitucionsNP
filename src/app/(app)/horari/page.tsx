@@ -22,6 +22,18 @@ const NOMS_TIPUS: Record<string, string> = {
   disponible: 'Lliure',
 }
 
+interface EntradaHorari {
+  id: string
+  dia_setmana: number
+  tipus: string
+  materia: string | null
+  aula: string | null
+  tipus_parella: string | null
+  franja: { hora_inici: string; hora_fi: string } | null
+  grup: { nom: string } | null
+  parella_docent: { nom: string } | null
+}
+
 export default async function HorariPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -34,7 +46,7 @@ export default async function HorariPage() {
 
   if (!docent) return null
 
-  const { data: horari } = await supabase
+  const { data: horariRaw } = await supabase
     .from('horari_setmanal')
     .select(`
       id, dia_setmana, tipus, materia, aula, tipus_parella,
@@ -45,22 +57,14 @@ export default async function HorariPage() {
     .eq('docent_id', docent.id)
     .order('dia_setmana')
 
-  // Agrupa per dia
-  const perDia: Record<number, any[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] }
-  for (const h of (horari ?? [])) {
-    if (h.dia_setmana >= 1 && h.dia_setmana <= 5) {
-      perDia[h.dia_setmana].push(h)
-    }
-  }
+  const horari = (horariRaw ?? []).map((h: any) => ({
+    ...h,
+    franja: Array.isArray(h.franja) ? h.franja[0] ?? null : h.franja,
+    grup: Array.isArray(h.grup) ? h.grup[0] ?? null : h.grup,
+    parella_docent: Array.isArray(h.parella_docent) ? h.parella_docent[0] ?? null : h.parella_docent,
+  })) as EntradaHorari[]
 
-  // Ordena cada dia per hora d'inici
-  for (const dia of Object.keys(perDia)) {
-    perDia[Number(dia)].sort((a: any, b: any) =>
-      (a.franja?.hora_inici ?? '').localeCompare(b.franja?.hora_inici ?? '')
-    )
-  }
-
-  if (!horari || horari.length === 0) {
+  if (horari.length === 0) {
     return (
       <div className="space-y-4">
         <h1 className="text-xl font-semibold" style={{ color: 'var(--color-primary)' }}>El meu horari</h1>
@@ -71,34 +75,67 @@ export default async function HorariPage() {
     )
   }
 
+  // Files de la graella: totes les franges horàries diferents que apareixen
+  // a l'horari d'aquest docent (per si dona classe a etapes amb graelles
+  // horàries diferents), ordenades per hora d'inici.
+  const franjaPerClau = new Map<string, { hora_inici: string; hora_fi: string }>()
+  for (const h of horari) {
+    if (!h.franja) continue
+    const clau = `${h.franja.hora_inici}-${h.franja.hora_fi}`
+    if (!franjaPerClau.has(clau)) franjaPerClau.set(clau, h.franja)
+  }
+  const files = Array.from(franjaPerClau.entries())
+    .sort(([, a], [, b]) => a.hora_inici.localeCompare(b.hora_inici))
+
+  // Índex [claudeFranja][diaSetmana] -> entrada (normalment només n'hi ha una)
+  const graella = new Map<string, Map<number, EntradaHorari>>()
+  for (const h of horari) {
+    if (!h.franja || h.dia_setmana < 1 || h.dia_setmana > 5) continue
+    const clau = `${h.franja.hora_inici}-${h.franja.hora_fi}`
+    if (!graella.has(clau)) graella.set(clau, new Map())
+    graella.get(clau)!.set(h.dia_setmana, h)
+  }
+
   return (
     <div className="space-y-5">
       <h1 className="text-xl font-semibold" style={{ color: 'var(--color-primary)' }}>
         El meu horari
       </h1>
 
-      {/* Vista mòbil: un dia per secció */}
+      {/* Vista mòbil: un dia per secció, amb totes les franges (buides en blanc) */}
       <div className="lg:hidden space-y-4">
         {DIES.map((nomDia, i) => {
           const diaNum = i + 1
-          const franges = perDia[diaNum]
-          if (franges.length === 0) return null
           return (
             <section key={diaNum}>
               <h2 className="text-sm font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--color-text-secondary)' }}>
                 {nomDia}
               </h2>
               <div className="space-y-1.5">
-                {franges.map((h: any) => {
+                {files.map(([clau, franja]) => {
+                  const h = graella.get(clau)?.get(diaNum)
+                  if (!h) {
+                    return (
+                      <div
+                        key={clau}
+                        className="flex items-center gap-3 rounded-lg px-3 py-2.5 border-l-4"
+                        style={{ backgroundColor: 'white', borderColor: 'var(--color-border)' }}
+                      >
+                        <div className="text-xs font-mono w-20 flex-shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
+                          {franja.hora_inici.slice(0, 5)}–{franja.hora_fi.slice(0, 5)}
+                        </div>
+                      </div>
+                    )
+                  }
                   const colors = COLORS_TIPUS[h.tipus] ?? COLORS_TIPUS.disponible
                   return (
                     <div
-                      key={h.id}
+                      key={clau}
                       className="flex items-start gap-3 rounded-lg px-3 py-2.5 border-l-4"
                       style={{ backgroundColor: colors.bg, borderColor: colors.border }}
                     >
                       <div className="text-xs font-mono w-20 flex-shrink-0 pt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                        {h.franja?.hora_inici?.slice(0, 5)}–{h.franja?.hora_fi?.slice(0, 5)}
+                        {franja.hora_inici.slice(0, 5)}–{franja.hora_fi.slice(0, 5)}
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-medium" style={{ color: colors.text }}>
@@ -124,60 +161,72 @@ export default async function HorariPage() {
         })}
       </div>
 
-      {/* Vista desktop: taula setmanal */}
+      {/* Vista desktop: graella real Dilluns–Divendres × hores */}
       <div className="hidden lg:block overflow-x-auto">
-        <div className="grid grid-cols-5 gap-3 min-w-[700px]">
-          {DIES.map((nomDia, i) => {
-            const diaNum = i + 1
-            const franges = perDia[diaNum]
-            return (
-              <div key={diaNum}>
-                <div
-                  className="text-xs font-semibold uppercase tracking-wide text-center py-2 mb-2 rounded-lg"
-                  style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}
+        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '6px', minWidth: '800px' }}>
+          <thead>
+            <tr>
+              <th style={{ width: '90px' }}></th>
+              {DIES.map(nomDia => (
+                <th
+                  key={nomDia}
+                  className="text-sm py-2 rounded-lg"
+                  style={{
+                    backgroundColor: 'var(--color-primary)',
+                    color: 'white',
+                    fontFamily: 'var(--font-display)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                  }}
                 >
                   {nomDia}
-                </div>
-                <div className="space-y-1.5">
-                  {franges.length === 0 ? (
-                    <div className="text-xs text-center py-4" style={{ color: 'var(--color-text-secondary)' }}>
-                      Sense franges
-                    </div>
-                  ) : (
-                    franges.map((h: any) => {
-                      const colors = COLORS_TIPUS[h.tipus] ?? COLORS_TIPUS.disponible
-                      return (
-                        <div
-                          key={h.id}
-                          className="rounded-lg p-2 border-l-4 text-xs"
-                          style={{ backgroundColor: colors.bg, borderColor: colors.border }}
-                        >
-                          <div className="font-mono text-xs mb-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                            {h.franja?.hora_inici?.slice(0, 5)}–{h.franja?.hora_fi?.slice(0, 5)}
-                          </div>
-                          <div className="font-medium" style={{ color: colors.text }}>
-                            {NOMS_TIPUS[h.tipus]}
-                          </div>
-                          {h.grup?.nom && (
-                            <div style={{ color: colors.text, opacity: 0.8 }}>{h.grup.nom}</div>
-                          )}
-                          {h.materia && (
-                            <div style={{ color: colors.text, opacity: 0.7 }}>{h.materia}</div>
-                          )}
-                          {h.parella_docent?.nom && (
-                            <div style={{ color: colors.text, opacity: 0.6 }}>
-                              amb {h.parella_docent.nom.split(' ')[0]}
-                            </div>
-                          )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {files.map(([clau, franja]) => (
+              <tr key={clau}>
+                <td className="text-xs font-mono text-right pr-2 align-middle" style={{ color: 'var(--color-text-secondary)' }}>
+                  {franja.hora_inici.slice(0, 5)}<br />{franja.hora_fi.slice(0, 5)}
+                </td>
+                {DIES.map((_, i) => {
+                  const diaNum = i + 1
+                  const h = graella.get(clau)?.get(diaNum)
+                  if (!h) {
+                    // Franja buida: casella en blanc.
+                    return (
+                      <td
+                        key={diaNum}
+                        className="rounded-lg"
+                        style={{ backgroundColor: 'white', border: '1px solid var(--color-border)', height: '64px' }}
+                      />
+                    )
+                  }
+                  const colors = COLORS_TIPUS[h.tipus] ?? COLORS_TIPUS.disponible
+                  return (
+                    <td
+                      key={diaNum}
+                      className="rounded-lg p-2 border-l-4 text-xs align-top"
+                      style={{ backgroundColor: colors.bg, borderColor: colors.border }}
+                    >
+                      <div className="font-medium" style={{ color: colors.text }}>
+                        {NOMS_TIPUS[h.tipus]}
+                      </div>
+                      {h.grup?.nom && <div style={{ color: colors.text, opacity: 0.8 }}>{h.grup.nom}</div>}
+                      {h.materia && <div style={{ color: colors.text, opacity: 0.7 }}>{h.materia}</div>}
+                      {h.parella_docent?.nom && (
+                        <div style={{ color: colors.text, opacity: 0.6 }}>
+                          amb {h.parella_docent.nom.split(' ')[0]}
                         </div>
-                      )
-                    })
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {/* Llegenda */}

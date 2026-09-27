@@ -1,5 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import { esEquipDirectiu } from '@/lib/roles'
+
+const TEXT_ESTAT: Record<string, string> = {
+  proposta: 'Proposta',
+  aprovada: 'Aprovada',
+  rebutjada: 'Rebutjada',
+  eliminada: 'Eliminada',
+}
 
 export default async function SortidesPage() {
   const supabase = await createClient()
@@ -16,9 +24,7 @@ export default async function SortidesPage() {
     .select('rol')
     .eq('docent_id', docent?.id ?? '')
 
-  const esGestor = rols?.some(r =>
-    ['director', 'sotsdirector', 'coordinacio_etapa'].includes(r.rol)
-  )
+  const esGestor = esEquipDirectiu(rols)
 
   const avui = new Date().toISOString().split('T')[0]
 
@@ -38,13 +44,25 @@ export default async function SortidesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-semibold" style={{ color: 'var(--color-primary)' }}>
           Sortides escolars
         </h1>
-        <Link href="/sortides/nova" className="btn-primary text-sm px-4 py-2" style={{ minHeight: '36px' }}>
-          + Nova
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/sortides/calendari"
+            className="btn-secondary text-sm px-4 py-2 flex items-center gap-1.5"
+            style={{ minHeight: '36px' }}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+            </svg>
+            Calendari
+          </Link>
+          <Link href="/sortides/nova" className="btn-primary text-sm px-4 py-2" style={{ minHeight: '36px' }}>
+            + Nova
+          </Link>
+        </div>
       </div>
 
       {/* Pendents d'aprovació (gestors) */}
@@ -103,7 +121,7 @@ export default async function SortidesPage() {
                   )}
                 </div>
                 <span className={`badge badge-${s.estat === 'proposta' ? 'pendent' : s.estat} flex-shrink-0`}>
-                  {s.estat === 'proposta' ? 'Proposta' : s.estat === 'aprovada' ? 'Aprovada' : 'Rebutjada'}
+                  {TEXT_ESTAT[s.estat] ?? s.estat}
                 </span>
               </Link>
             ))}
@@ -131,8 +149,8 @@ export default async function SortidesPage() {
                     {new Date(s.data).toLocaleDateString('ca-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </p>
                 </div>
-                <span className={`badge badge-${s.estat === 'aprovada' ? 'aprovada' : 'rebutjada'} flex-shrink-0`}>
-                  {s.estat === 'aprovada' ? 'Aprovada' : 'Rebutjada'}
+                <span className={`badge badge-${s.estat} flex-shrink-0`}>
+                  {TEXT_ESTAT[s.estat] ?? s.estat}
                 </span>
               </Link>
             ))}

@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { crearAbsencia } from '@/lib/actions/generar-substitucions'
+import { useToast } from '@/components/ui/Toast'
 
 interface Props {
   docentId: string
@@ -11,6 +12,7 @@ interface Props {
 
 export default function NovaAbsenciaForm({ docentId }: Props) {
   const router = useRouter()
+  const { showToast } = useToast()
 
   const [data, setData] = useState('')
   const [multiDia, setMultiDia] = useState(false)
@@ -22,47 +24,60 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
   const [observacions, setObservacions] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // Guarda addicional a `loading`: evita un doble enviament si l'usuari fa
+  // doble clic abans que React torni a renderitzar el botó com a disabled.
+  const enviantRef = useRef(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
-    setError('')
+    if (enviantRef.current) return
 
     if (!data) {
       setError('Cal seleccionar una data.')
-      setLoading(false)
       return
     }
     if (multiDia && dataFi && dataFi < data) {
       setError('La data de fi no pot ser anterior a la data d\'inici.')
-      setLoading(false)
       return
     }
     if (!totElDia && !multiDia && (!horaInici || !horaFi)) {
       setError('Cal indicar la franja horària.')
-      setLoading(false)
       return
     }
 
-    const result = await crearAbsencia({
-      docentId,
-      data,
-      dataFi: multiDia && dataFi ? dataFi : undefined,
-      motiu,
-      totElDia: multiDia ? true : totElDia,
-      horaInici: totElDia || multiDia ? undefined : horaInici,
-      horaFi: totElDia || multiDia ? undefined : horaFi,
-      observacions: observacions || undefined,
-    })
+    enviantRef.current = true
+    setLoading(true)
+    setError('')
 
-    if (!result.ok) {
-      setError(result.error ?? "Error en desar l'absència. Torna-ho a provar.")
+    try {
+      const result = await crearAbsencia({
+        docentId,
+        data,
+        dataFi: multiDia && dataFi ? dataFi : undefined,
+        motiu,
+        totElDia: multiDia ? true : totElDia,
+        horaInici: totElDia || multiDia ? undefined : horaInici,
+        horaFi: totElDia || multiDia ? undefined : horaFi,
+        observacions: observacions || undefined,
+      })
+
+      if (!result.ok) {
+        setError(result.error ?? "Error en desar l'absència. Torna-ho a provar.")
+        setLoading(false)
+        enviantRef.current = false
+        return
+      }
+
+      showToast('Absència comunicada correctament.')
+      router.push(result.absenciaId ? `/absencies/${result.absenciaId}` : '/absencies')
+      router.refresh()
+    } catch (err: unknown) {
+      console.error(err)
+      const missatge = err instanceof Error ? err.message : String(err)
+      setError("S'ha produït un error inesperat: " + missatge)
       setLoading(false)
-      return
+      enviantRef.current = false
     }
-
-    router.push(result.absenciaId ? `/absencies/${result.absenciaId}` : '/absencies')
-    router.refresh()
   }
 
   return (
@@ -229,10 +244,25 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
       )}
 
       <div className="flex gap-3 pt-2">
-        <a href="/absencies" className="btn-secondary flex-1 text-center">
+        <a
+          href="/absencies"
+          className="btn-secondary flex-1 text-center"
+          style={loading ? { pointerEvents: 'none', opacity: 0.6 } : undefined}
+        >
           Cancel·lar
         </a>
-        <button type="submit" disabled={loading} className="btn-primary flex-1">
+        <button
+          type="submit"
+          disabled={loading}
+          className="btn-primary flex-1 flex items-center justify-center gap-2"
+          style={{ cursor: loading ? 'not-allowed' : 'pointer' }}
+        >
+          {loading && (
+            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          )}
           {loading ? 'Enviant...' : 'Comunicar absència'}
         </button>
       </div>

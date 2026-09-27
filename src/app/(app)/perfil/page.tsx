@@ -3,10 +3,7 @@ import { redirect } from 'next/navigation'
 
 const NOMS_ROL: Record<string, string> = {
   docent: 'Docent',
-  coordinacio_etapa: 'Coordinació d\'etapa',
-  cap_personal: 'Cap de personal',
-  director: 'Director/a',
-  sotsdirector: 'Sotsdirector/a',
+  equip_directiu: 'Equip directiu',
 }
 
 export default async function PerfilPage() {
@@ -133,7 +130,7 @@ export default async function PerfilPage() {
         <button
           type="submit"
           className="btn-secondary w-full"
-          style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+          style={{ backgroundColor: 'transparent', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
         >
           Tancar sessió
         </button>

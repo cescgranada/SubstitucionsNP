@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import { esEquipDirectiu } from '@/lib/roles'
 
 const MOTIUS: Record<string, string> = {
   medic: 'Mèdic',
@@ -12,6 +13,7 @@ const BADGE_ESTAT: Record<string, string> = {
   aprovada: 'badge-aprovada',
   rebutjada: 'badge-rebutjada',
   'cancel·lada': 'badge-cancel-lada',
+  eliminada: 'badge-eliminada',
 }
 
 const TEXT_ESTAT: Record<string, string> = {
@@ -19,6 +21,7 @@ const TEXT_ESTAT: Record<string, string> = {
   aprovada: 'Aprovada',
   rebutjada: 'Rebutjada',
   'cancel·lada': 'Cancel·lada',
+  eliminada: 'Eliminada',
 }
 
 function formatData(data: string, dataFi: string | null): string {
@@ -53,15 +56,9 @@ export default async function AbsenciesPage({
     .select('rol, etapa_id')
     .eq('docent_id', docent.id)
 
-  // Pot veure pendents: cap_personal, director, sotsdirector, coordinació
-  const esGestor = rols?.some(r =>
-    ['cap_personal', 'director', 'sotsdirector', 'coordinacio_etapa'].includes(r.rol)
-  )
-
-  // Pot veure historial complet del claustre: cap_personal, director, sotsdirector
-  const esHistorialGestor = rols?.some(r =>
-    ['cap_personal', 'director', 'sotsdirector'].includes(r.rol)
-  )
+  // L'equip directiu pot veure les pendents d'aprovar i l'historial del claustre
+  const esGestor = esEquipDirectiu(rols)
+  const esHistorialGestor = esGestor
 
   const params = await searchParams
   const filtreDocentId = params.filtreDocent ?? ''
@@ -85,10 +82,10 @@ export default async function AbsenciesPage({
         .order('data', { ascending: true })
     : { data: null }
 
-  // Historial complet del claustre (cap_personal, director, sotsdirector)
+  // Historial complet del claustre (equip directiu)
   let historialQuery = supabase
     .from('absencies')
-    .select('id, data, data_fi, motiu, estat, docent:docent_id(id, nom)')
+    .select('id, data, data_fi, motiu, estat, docent:docent_id(id, nom), eliminador:eliminada_per(nom)')
     .order('data', { ascending: false })
     .limit(60)
 
@@ -181,7 +178,7 @@ export default async function AbsenciesPage({
         )}
       </section>
 
-      {/* Historial complet del claustre — cap_personal, director, sotsdirector */}
+      {/* Historial complet del claustre — equip directiu */}
       {esHistorialGestor && (
         <section>
           <h2 className="text-sm font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-secondary)' }}>
@@ -220,6 +217,7 @@ export default async function AbsenciesPage({
               <option value="aprovada">Aprovada</option>
               <option value="rebutjada">Rebutjada</option>
               <option value="cancel·lada">Cancel·lada</option>
+              <option value="eliminada">Eliminada</option>
             </select>
             <button
               type="submit"
@@ -255,6 +253,11 @@ export default async function AbsenciesPage({
                     <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
                       {formatData(a.data, a.data_fi)} · {MOTIUS[a.motiu] ?? a.motiu}
                     </p>
+                    {a.estat === 'eliminada' && a.eliminador?.nom && (
+                      <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
+                        Eliminada per {a.eliminador.nom}
+                      </p>
+                    )}
                   </div>
                   <span className={`badge ${BADGE_ESTAT[a.estat] ?? 'badge-pendent'} flex-shrink-0`}>
                     {TEXT_ESTAT[a.estat] ?? a.estat}

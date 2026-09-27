@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { confirmarSubstitucio, actualitzarFeinaSubstitut } from '@/lib/actions/substitucions'
+import { confirmarSubstitucio, actualitzarFeinaSubstitut, marcarSenseSubstitucio } from '@/lib/actions/substitucions'
 
 const MOTIUS: Record<string, string> = {
   medic: 'Mèdic',
@@ -18,6 +18,20 @@ const TIPUS_HORARI: Record<string, string> = {
   esbarjo: 'Esbarjo',
   hnl: 'Hora no lectiva',
   disponible: 'Disponible',
+}
+
+const TEXT_ESTAT: Record<string, string> = {
+  pendent: 'Pendent',
+  proposta_ia: 'Proposta',
+  confirmada: 'Confirmada',
+  no_cal: 'No cal substitut',
+  eliminada: 'Eliminada',
+}
+
+function formatDataHora(iso: string): string {
+  return new Date(iso).toLocaleDateString('ca-ES', {
+    day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
 }
 
 interface Props {
@@ -58,6 +72,19 @@ export default function SubstitucioDetall({
       feinaSubstitut: feina || undefined,
       docentGestorId: docentActualId,
     })
+    if (!result.ok) {
+      setErrorMsg(result.error ?? 'Error inesperat')
+      setLoading(false)
+      return
+    }
+    router.push('/substitucions')
+    router.refresh()
+  }
+
+  const handleSenseSubstitucio = async () => {
+    setLoading(true)
+    setErrorMsg('')
+    const result = await marcarSenseSubstitucio(substitucio.id, docentActualId)
     if (!result.ok) {
       setErrorMsg(result.error ?? 'Error inesperat')
       setLoading(false)
@@ -108,11 +135,7 @@ export default function SubstitucioDetall({
             </p>
           </div>
           <span className={`badge badge-${substitucio.estat}`}>
-            {substitucio.estat === 'pendent'
-              ? 'Pendent'
-              : substitucio.estat === 'proposta_ia'
-              ? 'Proposta'
-              : 'Confirmada'}
+            {TEXT_ESTAT[substitucio.estat] ?? substitucio.estat}
           </span>
         </div>
 
@@ -181,7 +204,7 @@ export default function SubstitucioDetall({
           <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
             Feina per al substitut/a
           </h2>
-          {esDocentAbsent && !editantFeina && substitucio.estat !== 'confirmada' && (
+          {esDocentAbsent && !editantFeina && ['pendent', 'proposta_ia'].includes(substitucio.estat) && (
             <button
               onClick={() => { setFeinaDraft(feina); setEditantFeina(true) }}
               className="text-xs font-medium"
@@ -234,7 +257,7 @@ export default function SubstitucioDetall({
       </div>
 
       {/* Gestió: assignar substitut */}
-      {esGestor && substitucio.estat !== 'confirmada' && (
+      {esGestor && ['pendent', 'proposta_ia'].includes(substitucio.estat) && (
         <div className="card space-y-4">
           <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
             Assignar substitut/a
@@ -294,6 +317,28 @@ export default function SubstitucioDetall({
           >
             {loading ? 'Confirmant...' : 'Confirmar substitució'}
           </button>
+
+          <button
+            onClick={handleSenseSubstitucio}
+            disabled={loading}
+            className="text-sm font-medium w-full text-center"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
+            No cal substitut/a per a aquesta franja
+          </button>
+        </div>
+      )}
+
+      {/* Decisió: no calia substitut */}
+      {substitucio.estat === 'no_cal' && (
+        <div className="card text-sm" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>
+          <p className="font-medium">No calia substitut/a per a aquesta franja.</p>
+          {substitucio.confirmador && (
+            <p className="text-xs mt-1">
+              Decidit per {substitucio.confirmador.nom}
+              {substitucio.confirmat_at && ` · ${formatDataHora(substitucio.confirmat_at)}`}
+            </p>
+          )}
         </div>
       )}
 
@@ -309,6 +354,7 @@ export default function SubstitucioDetall({
           {substitucio.confirmador && (
             <p className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
               Confirmat per {substitucio.confirmador.nom}
+              {substitucio.confirmat_at && ` · ${formatDataHora(substitucio.confirmat_at)}`}
             </p>
           )}
         </div>
@@ -320,6 +366,16 @@ export default function SubstitucioDetall({
           style={{ backgroundColor: 'var(--color-accent-light)', color: 'var(--color-primary)' }}
         >
           Ets el substitut/a assignat/da per a aquesta classe.
+        </div>
+      )}
+
+      {substitucio.estat === 'eliminada' && (
+        <div className="card text-sm" style={{ backgroundColor: '#F3F4F6', color: '#6B7280' }}>
+          Aquesta substitució es va eliminar
+          {substitucio.eliminador?.nom && ` (${substitucio.eliminador.nom}`}
+          {substitucio.eliminada_at && `, ${formatDataHora(substitucio.eliminada_at)}`}
+          {substitucio.eliminador?.nom && ')'}
+          .
         </div>
       )}
     </div>

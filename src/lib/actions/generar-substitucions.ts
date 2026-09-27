@@ -8,6 +8,7 @@ import {
   enviarNotificacioCoordinador,
   enviarNotificacioSubstitucioAnullada,
 } from '@/lib/email'
+import { esEquipDirectiu } from '@/lib/roles'
 
 /**
  * Retorna els dies laborables (dl–dv) entre dues dates, en format YYYY-MM-DD.
@@ -146,7 +147,7 @@ export async function cancellarAbsencia(
 
   if (!absencia) return { ok: false, error: 'Absència no trobada' }
   if (absencia.docent_id !== docentId) return { ok: false, error: 'Sense permís' }
-  if (['rebutjada', 'cancel·lada'].includes(absencia.estat)) {
+  if (['rebutjada', 'cancel·lada', 'eliminada'].includes(absencia.estat)) {
     return { ok: false, error: 'Aquesta absència no es pot cancel·lar' }
   }
 
@@ -170,8 +171,11 @@ export async function cancellarAbsencia(
     .eq('id', docentId)
     .single()
 
-  // Elimina les substitucions generades
-  await supabase.from('substitucions').delete().eq('absencia_id', absenciaId)
+  // Marca com a eliminades les substitucions generades (queda rastre)
+  await supabase
+    .from('substitucions')
+    .update({ estat: 'eliminada', eliminada_per: docentId, eliminada_at: new Date().toISOString() })
+    .eq('absencia_id', absenciaId)
 
   // Marca l'absència com a cancel·lada
   const { error } = await supabase
@@ -194,6 +198,62 @@ export async function cancellarAbsencia(
       grup: s.horari_setmanal?.grup?.nom,
     }).catch(console.error)
   }
+
+  return { ok: true }
+}
+
+/**
+ * Elimina una absència. No s'esborra mai de la base de dades: es marca
+ * amb estat 'eliminada' i queda registrat qui ho ha fet i quan, de
+ * manera que sempre es pot consultar l'historial d'eliminacions.
+ * - DOCENT: només la seva pròpia i només mentre estigui en estat 'pendent'.
+ * - EQUIP_DIRECTIU: qualsevol absència, en qualsevol estat.
+ * La RLS aplica la mateixa regla a nivell de base de dades (no permet
+ * cap DELETE físic sobre la taula).
+ */
+export async function eliminarAbsencia(
+  absenciaId: string,
+  docentActualId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient()
+
+  const { data: absencia } = await supabase
+    .from('absencies')
+    .select('id, docent_id, estat')
+    .eq('id', absenciaId)
+    .single()
+
+  if (!absencia) return { ok: false, error: 'Absència no trobada' }
+  if (absencia.estat === 'eliminada') return { ok: false, error: 'Aquesta absència ja està eliminada' }
+
+  const { data: rols } = await supabase
+    .from('docent_rols')
+    .select('rol')
+    .eq('docent_id', docentActualId)
+
+  const potEliminar = esEquipDirectiu(rols) ||
+    (absencia.docent_id === docentActualId && absencia.estat === 'pendent')
+
+  if (!potEliminar) return { ok: false, error: 'Sense permís per eliminar aquesta absència' }
+
+  // Les substitucions generades deixen de tenir sentit un cop retirada la
+  // sol·licitud original, però es marquen com a eliminades (no s'esborren)
+  // per mantenir-ne la traçabilitat.
+  await supabase
+    .from('substitucions')
+    .update({ estat: 'eliminada', eliminada_per: docentActualId, eliminada_at: new Date().toISOString() })
+    .eq('absencia_id', absenciaId)
+
+  const { error } = await supabase
+    .from('absencies')
+    .update({
+      estat: 'eliminada',
+      eliminada_per: docentActualId,
+      eliminada_at: new Date().toISOString(),
+    })
+    .eq('id', absenciaId)
+
+  if (error) return { ok: false, error: error.message }
 
   return { ok: true }
 }
@@ -342,13 +402,16 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
     }
   }
 
-  // Notifica els coordinadors de l'etapa (si s'han generat substitucions automàticament)
+  // Notifica els coordinadors de l'etapa (si s'han generat substitucions automàticament).
+  // `etapa_id` distingeix, dins de l'equip directiu, els càrrecs propis d'una
+  // etapa (coordinació) dels càrrecs globals (direcció, sotsdirecció, cap de
+  // personal), que no en tenen assignada.
   if (totalCreades > 0 && etapaId) {
     const { data: coordinadors } = await supabase
       .from('docent_rols')
       .select('docent:docent_id(nom, email)')
-      .in('rol', ['coordinacio_etapa', 'director', 'sotsdirector'])
-      .or(`etapa_id.eq.${etapaId},rol.in.(director,sotsdirector)`)
+      .eq('rol', 'equip_directiu')
+      .or(`etapa_id.eq.${etapaId},etapa_id.is.null`)
 
     for (const c of (coordinadors ?? []) as any[]) {
       if (c.docent?.email) {
@@ -445,11 +508,13 @@ export async function crearAbsencia(params: {
     const gen = await generarSubstitucions(absencia.id)
     if (!gen.ok) console.error('Error generant substitucions:', gen.error)
   } else if (estat === 'pendent' && docentInfo) {
-    // Notifiquem cap_personal (jerarquia empresa), director i sotsdirector
+    // Notifiquem els càrrecs globals (direcció, sotsdirecció, cap de
+    // personal) — no els coordinadors d'etapa, que no tenen `etapa_id` null.
     const { data: gestors } = await supabase
       .from('docent_rols')
       .select('docent:docent_id(nom, email)')
-      .in('rol', ['cap_personal', 'director', 'sotsdirector'])
+      .eq('rol', 'equip_directiu')
+      .is('etapa_id', null)
 
     // Evitar duplicats si un docent té múltiples rols gestors
     const emailsVistos = new Set<string>()

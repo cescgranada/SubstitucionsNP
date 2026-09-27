@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import FullSubstitucions from './FullSubstitucions'
+import { esEquipDirectiu } from '@/lib/roles'
 
 export default async function FullSubstitucionsPage({
   searchParams,
@@ -25,11 +26,7 @@ export default async function FullSubstitucionsPage({
     .select('rol')
     .eq('docent_id', docent.id)
 
-  const esGestor = rols?.some(r =>
-    ['cap_personal', 'director', 'sotsdirector', 'coordinacio_etapa'].includes(r.rol)
-  )
-
-  if (!esGestor) redirect('/substitucions')
+  if (!esEquipDirectiu(rols)) redirect('/substitucions')
 
   const avui = new Date().toISOString().split('T')[0]
   const data = dataParam ?? avui
@@ -52,6 +49,7 @@ export default async function FullSubstitucionsPage({
       )
     `)
     .eq('data', data)
+    .neq('estat', 'eliminada')
     .order('created_at')
 
   // Ordena per hora d'inici
