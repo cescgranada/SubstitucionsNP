@@ -50,7 +50,7 @@ export default async function SortidesPage() {
         </h1>
         <div className="flex items-center gap-2">
           <Link
-            href="/sortides/calendari"
+            href="/calendari"
             className="btn-secondary text-sm px-4 py-2 flex items-center gap-1.5"
             style={{ minHeight: '36px' }}
           >
