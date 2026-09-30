@@ -137,7 +137,7 @@ export default async function DocentDetallPage({ params }: { params: Promise<{ i
     <div className="max-w-2xl space-y-6">
       <div>
         <Link href="/docents" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-          ← Docents
+          ← Personal
         </Link>
       </div>
 
