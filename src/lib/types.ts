@@ -103,6 +103,15 @@ export type Sortida = {
   transport: Transport | null
   requereix_pagament: boolean
   data_limit_pagament: string | null
+  dinar_demanat: boolean
+  dinar_demanat_per: string | null
+  dinar_demanat_at: string | null
+  transport_demanat: boolean
+  transport_demanat_per: string | null
+  transport_demanat_at: string | null
+  pagament_fet: boolean
+  pagament_fet_per: string | null
+  pagament_fet_at: string | null
   google_event_id: string | null
   eliminada_per: string | null
   eliminada_at: string | null

@@ -106,6 +106,7 @@ interface SidebarProps {
 
 export default function Sidebar({ docent, rols }: SidebarProps) {
   const esGestor = rols.includes('equip_directiu')
+  const esPas = rols.includes('pas')
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
@@ -151,6 +152,28 @@ export default function Sidebar({ docent, rols }: SidebarProps) {
 
       {/* Navegació */}
       <nav className="flex-1 px-3 py-4 space-y-1">
+        {esPas ? (
+          // El PAS només té accés a Sortides i al seu Perfil.
+          <>
+            <Link
+              href="/sortides"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+              style={estilLink(pathname.startsWith('/sortides'))}
+            >
+              {GRUP_GESTIO.items[1].icon}
+              Sortides
+            </Link>
+            <Link
+              href="/perfil"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+              style={estilLink(pathname.startsWith('/perfil'))}
+            >
+              {NAV_ITEMS_FINAL[1].icon}
+              Perfil
+            </Link>
+          </>
+        ) : (
+        <>
         {NAV_ITEMS.map((item) => {
           const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
           return (
@@ -243,6 +266,8 @@ export default function Sidebar({ docent, rols }: SidebarProps) {
             </svg>
             Dashboard
           </Link>
+        )}
+        </>
         )}
       </nav>
 

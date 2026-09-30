@@ -60,8 +60,36 @@ const NAV_ITEMS = [
   },
 ]
 
-export default function BottomNav() {
+// El PAS només té accés a Sortides i al seu Perfil.
+const NAV_ITEMS_PAS = [
+  {
+    href: '/sortides',
+    label: 'Sortides',
+    icon: (
+      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+      </svg>
+    ),
+  },
+  {
+    href: '/perfil',
+    label: 'Perfil',
+    icon: (
+      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+      </svg>
+    ),
+  },
+]
+
+interface Props {
+  rols: string[]
+}
+
+export default function BottomNav({ rols }: Props) {
   const pathname = usePathname()
+  const items = rols.includes('pas') ? NAV_ITEMS_PAS : NAV_ITEMS
 
   return (
     <nav
@@ -73,7 +101,7 @@ export default function BottomNav() {
       }}
     >
       <div className="flex items-center justify-around h-16">
-        {NAV_ITEMS.map((item) => {
+        {items.map((item) => {
           const isActive =
             item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
           return (

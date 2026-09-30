@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
-import { esEquipDirectiu } from '@/lib/roles'
+import { esEquipDirectiu, esPas } from '@/lib/roles'
+import SortidesPas from './SortidesPas'
 
 const TEXT_ESTAT: Record<string, string> = {
   proposta: 'Proposta',
@@ -25,6 +26,26 @@ export default async function SortidesPage() {
     .eq('docent_id', docent?.id ?? '')
 
   const esGestor = esEquipDirectiu(rols)
+
+  // El PAS només gestiona la logística de les sortides ja aprovades:
+  // té la seva pròpia vista, sense res d'absències/substitucions ni
+  // sortides encara pendents d'aprovació.
+  if (esPas(rols)) {
+    const { data: sortidesAprovades } = await supabase
+      .from('sortides')
+      .select(`
+        id, data, hora_inici, hora_fi, descripcio,
+        necessita_dinar, transport, requereix_pagament, data_limit_pagament,
+        dinar_demanat, dinar_demanat_at, dinar_demanat_per:dinar_demanat_per(nom),
+        transport_demanat, transport_demanat_at, transport_demanat_per:transport_demanat_per(nom),
+        pagament_fet, pagament_fet_at, pagament_fet_per:pagament_fet_per(nom),
+        sortida_grups(grup:grup_id(nom))
+      `)
+      .eq('estat', 'aprovada')
+      .order('data', { ascending: true })
+
+    return <SortidesPas sortides={sortidesAprovades ?? []} docentActualId={docent?.id ?? ''} />
+  }
 
   const avui = new Date().toISOString().split('T')[0]
 

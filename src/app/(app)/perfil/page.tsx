@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 const NOMS_ROL: Record<string, string> = {
   docent: 'Docent',
   equip_directiu: 'Equip directiu',
+  pas: 'PAS',
 }
 
 export default async function PerfilPage() {

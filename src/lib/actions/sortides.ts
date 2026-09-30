@@ -4,7 +4,62 @@ import { createClient } from '@/lib/supabase/server'
 import { reassignarSubstitucionsPendentsDia, generarSubstitucionsAcompanyants } from './generar-substitucions'
 import { enviarNotificacioResolucioSortida, enviarNotificacioNovaSortida } from '@/lib/email'
 import { crearEsdevenimentSortida, eliminarEsdeveniment } from '@/lib/gcal'
-import { esEquipDirectiu } from '@/lib/roles'
+import { esEquipDirectiu, esPas } from '@/lib/roles'
+
+const CAMPS_GESTIO_PAS = {
+  dinar: { bool: 'dinar_demanat', per: 'dinar_demanat_per', at: 'dinar_demanat_at' },
+  transport: { bool: 'transport_demanat', per: 'transport_demanat_per', at: 'transport_demanat_at' },
+  pagament: { bool: 'pagament_fet', per: 'pagament_fet_per', at: 'pagament_fet_at' },
+} as const
+
+/**
+ * Marca (o desmarca) un dels 3 punts de gestió logística d'una sortida
+ * ja aprovada: dinar demanat, transport demanat, pagament fet. Reservat
+ * al rol PAS — és l'única escriptura que té sobre les sortides.
+ */
+export async function marcarGestioSortida(params: {
+  sortidaId: string
+  camp: 'dinar' | 'transport' | 'pagament'
+  valor: boolean
+  docentActualId: string
+}): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient()
+
+  const { data: rols } = await supabase
+    .from('docent_rols')
+    .select('rol')
+    .eq('docent_id', params.docentActualId)
+
+  if (!esPas(rols)) return { ok: false, error: 'Sense permís' }
+
+  const { data: sortida } = await supabase
+    .from('sortides')
+    .select('estat')
+    .eq('id', params.sortidaId)
+    .single()
+
+  if (!sortida) return { ok: false, error: 'Sortida no trobada' }
+  if (sortida.estat !== 'aprovada') {
+    return { ok: false, error: 'Aquesta sortida encara no està aprovada' }
+  }
+
+  const { bool, per, at } = CAMPS_GESTIO_PAS[params.camp]
+
+  // Només s'actualitzen aquests 3 camps concrets — mai la resta de la
+  // sortida, encara que la RLS del PAS permeti l'UPDATE de la fila sencera.
+  const { error } = await supabase
+    .from('sortides')
+    .update({
+      [bool]: params.valor,
+      [per]: params.valor ? params.docentActualId : null,
+      [at]: params.valor ? new Date().toISOString() : null,
+    })
+    .eq('id', params.sortidaId)
+
+  if (error) return { ok: false, error: error.message }
+
+  return { ok: true }
+}
 
 /**
  * Crea una nova proposta de sortida i notifica els caps d'etapa (responsabilitat
