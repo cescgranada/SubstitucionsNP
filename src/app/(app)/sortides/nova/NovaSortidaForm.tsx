@@ -51,7 +51,8 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
   const [transport, setTransport] = useState<Transport | ''>('')
   const [requereixPagament, setRequereixPagament] = useState(false)
   const [dataLimitPagament, setDataLimitPagament] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [estatEnviament, setEstatEnviament] = useState<'inactiu' | 'enviant' | 'enviat'>('inactiu')
+  const loading = estatEnviament !== 'inactiu'
   const [error, setError] = useState('')
   // Guarda addicional a `loading`: evita un doble enviament si l'usuari fa
   // doble clic abans que React torni a renderitzar el botó com a disabled.
@@ -88,7 +89,7 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
     }
 
     enviantRef.current = true
-    setLoading(true)
+    setEstatEnviament('enviant')
 
     try {
       const result = await proposarSortida({
@@ -107,11 +108,15 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
 
       if (!result.ok) {
         setError(result.error ?? 'Error en proposar la sortida.')
-        setLoading(false)
+        setEstatEnviament('inactiu')
         enviantRef.current = false
         return
       }
 
+      // La sortida ja s'ha desat correctament a la base de dades en
+      // aquest punt: ho confirmem al botó abans de navegar, perquè si la
+      // navegació mateixa trigués o fallés, mai sembli que no s'ha fet res.
+      setEstatEnviament('enviat')
       showToast('Sortida proposada correctament.')
       router.push(`/sortides/${result.sortidaId}`)
       router.refresh()
@@ -119,7 +124,7 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
       console.error(err)
       const missatge = err instanceof Error ? err.message : String(err)
       setError("S'ha produït un error inesperat: " + missatge)
-      setLoading(false)
+      setEstatEnviament('inactiu')
       enviantRef.current = false
     }
   }
@@ -324,15 +329,23 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
           type="submit"
           disabled={loading}
           className="btn-primary flex-1 flex items-center justify-center gap-2"
-          style={{ cursor: loading ? 'not-allowed' : 'pointer' }}
+          style={{
+            cursor: loading ? 'not-allowed' : 'pointer',
+            backgroundColor: estatEnviament === 'enviat' ? 'var(--color-success)' : undefined,
+          }}
         >
-          {loading && (
+          {estatEnviament === 'enviant' && (
             <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
           )}
-          {loading ? 'Enviant...' : 'Proposar sortida'}
+          {estatEnviament === 'enviat' && (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+            </svg>
+          )}
+          {estatEnviament === 'enviant' ? 'Enviant...' : estatEnviament === 'enviat' ? 'Enviat!' : 'Proposar sortida'}
         </button>
       </div>
     </form>
