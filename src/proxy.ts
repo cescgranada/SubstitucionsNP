@@ -48,22 +48,44 @@ export async function proxy(request: NextRequest) {
   )
 
   let user = null
+  // Distingim "no hi ha sessió" de "hi ha una sessió però ha quedat
+  // invàlida" (per exemple: el refresh token ja no existeix a Supabase).
+  // En aquest segon cas cal fer fora la galeta trencada explícitament —
+  // si no, cada petició torna a intentar el mateix refresc fallit amb la
+  // mateixa galeta i la persona es queda encallada sense poder navegar
+  // enlloc (el símptoma és un "Enviant..." que no acaba mai).
+  let sessioInvalida = false
   try {
-    const { data } = await supabase.auth.getUser()
-    user = data.user
+    const { data, error } = await supabase.auth.getUser()
+    if (error) {
+      sessioInvalida = true
+    } else {
+      user = data.user
+    }
   } catch {
-    // Si getUser() falla (xarxa, timeout...), no bloquejem l'accés.
-    // Els layouts del servidor faran la verificació definitiva.
+    sessioInvalida = true
   }
 
   const pathname = request.nextUrl.pathname
 
   if (!pathname.startsWith('/login') && !pathname.startsWith('/auth')) {
-    // Redirigim a /login NOMÉS si sabem amb certesa que no hi ha sessió:
-    // no hi ha usuari I no hi ha cap cookie de sessió de Supabase.
-    const hasSessionCookie = parseCookies(request).some(
+    const cookiesSessio = parseCookies(request).filter(
       c => c.name.startsWith('sb-') && c.name.includes('-auth-token')
     )
+    const hasSessionCookie = cookiesSessio.length > 0
+
+    if (sessioInvalida && hasSessionCookie) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      url.searchParams.set('error', 'sessio_caducada')
+      const resposta = NextResponse.redirect(url)
+      for (const c of cookiesSessio) resposta.cookies.delete(c.name)
+      resposta.cookies.delete(ROL_COOKIE)
+      return resposta
+    }
+
+    // Redirigim a /login NOMÉS si sabem amb certesa que no hi ha sessió:
+    // no hi ha usuari I no hi ha cap cookie de sessió de Supabase.
     if (!user && !hasSessionCookie) {
       const url = request.nextUrl.clone()
       url.pathname = '/login'
