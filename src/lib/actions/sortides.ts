@@ -160,6 +160,57 @@ export async function proposarSortida(params: {
 }
 
 /**
+ * Desa la llista d'acompanyants d'una sortida (substitueix la llista
+ * sencera). Reservat a l'equip directiu, i només mentre la sortida
+ * encara estigui pendent d'aprovació — un cop decidida, els
+ * acompanyants ja no es poden tocar.
+ */
+export async function desarAcompanyants(params: {
+  sortidaId: string
+  docentIds: string[]
+  docentActualId: string
+}): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient()
+
+  const { data: rols } = await supabase
+    .from('docent_rols')
+    .select('rol')
+    .eq('docent_id', params.docentActualId)
+
+  if (!esEquipDirectiu(rols)) return { ok: false, error: 'Sense permís' }
+
+  const { data: sortida } = await supabase
+    .from('sortides')
+    .select('estat')
+    .eq('id', params.sortidaId)
+    .single()
+
+  if (!sortida) return { ok: false, error: 'Sortida no trobada' }
+  if (sortida.estat !== 'proposta') {
+    return { ok: false, error: 'Els acompanyants només es poden triar mentre la sortida està pendent d\'aprovació' }
+  }
+
+  // Substitueix la llista sencera: esborra els acompanyants actuals i
+  // insereix els nous.
+  const { error: errDelete } = await supabase
+    .from('sortida_acompanyants')
+    .delete()
+    .eq('sortida_id', params.sortidaId)
+
+  if (errDelete) return { ok: false, error: errDelete.message }
+
+  if (params.docentIds.length > 0) {
+    const { error: errInsert } = await supabase
+      .from('sortida_acompanyants')
+      .insert(params.docentIds.map(docentId => ({ sortida_id: params.sortidaId, docent_id: docentId })))
+
+    if (errInsert) return { ok: false, error: errInsert.message }
+  }
+
+  return { ok: true }
+}
+
+/**
  * Aprova o rebutja una sortida escolar.
  * Si s'aprova, activa l'efecte cascada: els docents alliberats pels grups
  * que surten passen a ser candidats prioritaris per a les substitucions

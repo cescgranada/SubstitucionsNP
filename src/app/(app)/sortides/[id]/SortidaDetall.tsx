@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { actualitzarEstatSortida, eliminarSortida, marcarGestioSortida } from '@/lib/actions/sortides'
+import { actualitzarEstatSortida, eliminarSortida, marcarGestioSortida, desarAcompanyants } from '@/lib/actions/sortides'
 
 interface Props {
   sortida: any
@@ -10,6 +10,7 @@ interface Props {
   esGestor: boolean
   esProposador: boolean
   esPas: boolean
+  docentsCandidats: { id: string; nom: string }[]
 }
 
 const TEXT_TRANSPORT: Record<string, string> = {
@@ -24,11 +25,40 @@ function formatDataHora(iso: string): string {
   })
 }
 
-export default function SortidaDetall({ sortida, docentActualId, esGestor, esProposador, esPas }: Props) {
+export default function SortidaDetall({ sortida, docentActualId, esGestor, esProposador, esPas, docentsCandidats }: Props) {
   const router = useRouter()
   const [loading, setLoading] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
   const [confirmantEliminar, setConfirmantEliminar] = useState(false)
+
+  const acompanyantsActuals = ((sortida.sortida_acompanyants as any[]) ?? [])
+    .map((sa: any) => sa.docent?.id)
+    .filter(Boolean)
+  const [acompanyantsSeleccionats, setAcompanyantsSeleccionats] = useState<string[]>(acompanyantsActuals)
+  const [desantAcompanyants, setDesantAcompanyants] = useState(false)
+
+  const potTriarAcompanyants = esGestor && sortida.estat === 'proposta'
+
+  const toggleAcompanyant = (id: string) => {
+    setAcompanyantsSeleccionats(prev =>
+      prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]
+    )
+  }
+
+  const handleDesarAcompanyants = async () => {
+    setDesantAcompanyants(true)
+    setErrorMsg('')
+    const result = await desarAcompanyants({
+      sortidaId: sortida.id,
+      docentIds: acompanyantsSeleccionats,
+      docentActualId,
+    })
+    if (!result.ok) {
+      setErrorMsg(result.error ?? 'Error inesperat')
+    }
+    setDesantAcompanyants(false)
+    router.refresh()
+  }
 
   const calTransport = !!sortida.transport && sortida.transport !== 'peu'
   const teAlgunaGestio = sortida.necessita_dinar || calTransport || sortida.requereix_pagament
@@ -317,8 +347,49 @@ export default function SortidaDetall({ sortida, docentActualId, esGestor, esPro
         </div>
       )}
 
-      {/* Acompanyants */}
-      {acompanyants.length > 0 && (
+      {/* Acompanyants: selector (equip directiu, mentre és proposta) */}
+      {potTriarAcompanyants ? (
+        <div className="card space-y-3">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
+            Acompanyants
+          </h2>
+          {docentsCandidats.length > 0 ? (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {docentsCandidats.map(d => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => toggleAcompanyant(d.id)}
+                    className="text-sm px-3 py-1.5 rounded-lg border transition-colors"
+                    style={{
+                      borderColor: acompanyantsSeleccionats.includes(d.id) ? 'var(--color-primary)' : 'var(--color-border)',
+                      backgroundColor: acompanyantsSeleccionats.includes(d.id) ? 'var(--color-primary-light)' : 'white',
+                      color: acompanyantsSeleccionats.includes(d.id) ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                      fontWeight: acompanyantsSeleccionats.includes(d.id) ? 600 : 400,
+                    }}
+                  >
+                    {d.nom}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={handleDesarAcompanyants}
+                disabled={desantAcompanyants}
+                className="btn-secondary text-sm px-4 py-2"
+                style={{ minHeight: '36px', cursor: desantAcompanyants ? 'not-allowed' : 'pointer' }}
+              >
+                {desantAcompanyants ? 'Desant...' : 'Desar acompanyants'}
+              </button>
+            </>
+          ) : (
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+              No hi ha docents a les etapes d&apos;aquesta sortida.
+            </p>
+          )}
+        </div>
+      ) : acompanyants.length > 0 && (
         <div className="card">
           <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>
             Acompanyants
