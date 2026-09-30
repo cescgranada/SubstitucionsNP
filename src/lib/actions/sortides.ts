@@ -18,6 +18,10 @@ export async function proposarSortida(params: {
   descripcio: string
   observacions?: string
   grupsIds: string[]
+  necessitaDinar: boolean
+  transport: 'peu' | 'autocar' | 'transport_public' | null
+  requereixPagament: boolean
+  dataLimitPagament?: string
 }): Promise<{ ok: boolean; sortidaId?: string; error?: string }> {
   const supabase = await createClient()
 
@@ -34,6 +38,12 @@ export async function proposarSortida(params: {
     return { ok: false, error: 'Sense permís' }
   }
 
+  // Mateixa regla que el CHECK de la base de dades, però amb un missatge
+  // clar per a qui omple el formulari.
+  if (params.requereixPagament && !params.dataLimitPagament) {
+    return { ok: false, error: 'Cal indicar la data límit de pagament.' }
+  }
+
   // Crea la sortida
   const { data: sortida, error: errSortida } = await supabase
     .from('sortides')
@@ -44,6 +54,10 @@ export async function proposarSortida(params: {
       hora_fi: params.horaFi,
       descripcio: params.descripcio.trim(),
       observacions: params.observacions?.trim() || null,
+      necessita_dinar: params.necessitaDinar,
+      transport: params.transport,
+      requereix_pagament: params.requereixPagament,
+      data_limit_pagament: params.requereixPagament ? params.dataLimitPagament : null,
       estat: 'proposta',
     })
     .select('id')

@@ -4,12 +4,32 @@ import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { proposarSortida } from '@/lib/actions/sortides'
 import { useToast } from '@/components/ui/Toast'
+import type { Transport } from '@/lib/types'
 
 interface Grup {
   id: string
   codi: string
   nom: string
   etapa: { nom: string } | null
+}
+
+const OPCIONS_TRANSPORT: { valor: Transport; etiqueta: string }[] = [
+  { valor: 'peu', etiqueta: 'A peu' },
+  { valor: 'autocar', etiqueta: 'Autocar' },
+  { valor: 'transport_public', etiqueta: 'Transport públic' },
+]
+
+/**
+ * Comprova que la data límit de pagament té sentit respecte a la data de la
+ * sortida. Retorna un missatge d'error, o cadena buida si tot és correcte.
+ *
+ * TODO(usuari): quina relació ha de complir la data límit de pagament amb
+ * avui i amb la data de la sortida? Per exemple: no pot ser anterior a avui,
+ * i/o no pot ser posterior al dia de la sortida (pagar després de fer-la no
+ * té sentit). Tria la regla que encaixi amb com funcioneu a l'escola.
+ */
+function validarDataLimitPagament(dataLimit: string, dataSortida: string): string {
+  return ''
 }
 
 interface Props {
@@ -27,6 +47,10 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
   const [horaFi, setHoraFi] = useState('14:00')
   const [grupsSeleccionats, setGrupsSeleccionats] = useState<string[]>([])
   const [observacions, setObservacions] = useState('')
+  const [necessitaDinar, setNecessitaDinar] = useState(false)
+  const [transport, setTransport] = useState<Transport | ''>('')
+  const [requereixPagament, setRequereixPagament] = useState(false)
+  const [dataLimitPagament, setDataLimitPagament] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   // Guarda addicional a `loading`: evita un doble enviament si l'usuari fa
@@ -56,6 +80,12 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
     if (!data) { setError('Cal seleccionar una data.'); return }
     if (grupsSeleccionats.length === 0) { setError('Selecciona almenys un grup.'); return }
     if (horaInici >= horaFi) { setError('L\'hora de fi ha de ser posterior a la d\'inici.'); return }
+    if (!transport) { setError('Cal seleccionar el transport.'); return }
+    if (requereixPagament) {
+      if (!dataLimitPagament) { setError('Cal indicar la data límit de pagament.'); return }
+      const errorData = validarDataLimitPagament(dataLimitPagament, data)
+      if (errorData) { setError(errorData); return }
+    }
 
     enviantRef.current = true
     setLoading(true)
@@ -69,6 +99,10 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
         descripcio,
         observacions,
         grupsIds: grupsSeleccionats,
+        necessitaDinar,
+        transport: transport || null,
+        requereixPagament,
+        dataLimitPagament: requereixPagament ? dataLimitPagament : undefined,
       })
 
       if (!result.ok) {
@@ -170,6 +204,83 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Dinar */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setNecessitaDinar(!necessitaDinar)}
+          className="flex items-center gap-2 text-sm font-medium"
+          style={{ color: necessitaDinar ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}
+        >
+          <span
+            className="w-8 h-4 rounded-full transition-colors flex-shrink-0 relative"
+            style={{ backgroundColor: necessitaDinar ? 'var(--color-primary)' : 'var(--color-border)' }}
+          >
+            <span
+              className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform"
+              style={{ transform: necessitaDinar ? 'translateX(18px)' : 'translateX(2px)' }}
+            />
+          </span>
+          Cal dinar
+        </button>
+      </div>
+
+      {/* Transport */}
+      <div>
+        <label>Transport</label>
+        <div className="grid grid-cols-3 gap-2 mt-1">
+          {OPCIONS_TRANSPORT.map((opcio) => (
+            <button
+              key={opcio.valor}
+              type="button"
+              onClick={() => setTransport(opcio.valor)}
+              className="py-2.5 px-2 rounded-lg text-sm font-medium border transition-colors"
+              style={{
+                borderColor: transport === opcio.valor ? 'var(--color-primary)' : 'var(--color-border)',
+                backgroundColor: transport === opcio.valor ? 'var(--color-primary-light)' : 'white',
+                color: transport === opcio.valor ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+              }}
+            >
+              {opcio.etiqueta}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Pagament */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setRequereixPagament(!requereixPagament)}
+          className="flex items-center gap-2 text-sm font-medium"
+          style={{ color: requereixPagament ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}
+        >
+          <span
+            className="w-8 h-4 rounded-full transition-colors flex-shrink-0 relative"
+            style={{ backgroundColor: requereixPagament ? 'var(--color-primary)' : 'var(--color-border)' }}
+          >
+            <span
+              className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform"
+              style={{ transform: requereixPagament ? 'translateX(18px)' : 'translateX(2px)' }}
+            />
+          </span>
+          Cal fer un pagament
+        </button>
+
+        {requereixPagament && (
+          <div className="mt-3">
+            <label htmlFor="data-limit-pagament">Data límit de pagament</label>
+            <input
+              id="data-limit-pagament"
+              type="date"
+              value={dataLimitPagament}
+              onChange={(e) => setDataLimitPagament(e.target.value)}
+              required={requereixPagament}
+            />
+          </div>
+        )}
       </div>
 
       {/* Observacions */}
