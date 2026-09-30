@@ -4,6 +4,7 @@ import Link from 'next/link'
 const ROLS_LABEL: Record<string, string> = {
   equip_directiu: 'Equip directiu',
   docent: 'Docent',
+  pas: 'PAS',
 }
 
 export default async function DocentsPage() {
@@ -64,14 +65,20 @@ export default async function DocentsPage() {
     }
   }
 
-  // Agrupa per etapa
+  // Agrupa per etapa. Qui no en té cap (típicament el PAS) va a part.
   const docentsPerEtapa = new Map<string, { etapaNom: string; etapaCodi: string; docents: any[] }>()
-  const sensEtapa: any[] = []
+  const pasSenseEtapa: any[] = []
+  const altresSenseEtapa: any[] = []
 
   for (const d of docents) {
     const etapes = (d.docent_etapes as any[]) ?? []
     if (etapes.length === 0) {
-      sensEtapa.push(d)
+      const rols = (d.docent_rols as any[]) ?? []
+      if (rols.some(r => r.rol === 'pas')) {
+        pasSenseEtapa.push(d)
+      } else {
+        altresSenseEtapa.push(d)
+      }
       continue
     }
     for (const de of etapes) {
@@ -91,7 +98,7 @@ export default async function DocentsPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-semibold" style={{ color: 'var(--color-primary)' }}>
-        Docents
+        Personal
       </h1>
 
       {/* Resum estat del dia */}
@@ -172,13 +179,34 @@ export default async function DocentsPage() {
         </section>
       ))}
 
-      {sensEtapa.length > 0 && (
+      {pasSenseEtapa.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            PAS
+          </h2>
+          <div className="space-y-2">
+            {pasSenseEtapa.map((d: any) => (
+              <div key={d.id} className="card flex items-center gap-3">
+                <div
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0"
+                  style={{ backgroundColor: 'var(--color-primary-light)', color: 'var(--color-primary)' }}
+                >
+                  {d.nom.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                </div>
+                <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>{d.nom}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {altresSenseEtapa.length > 0 && (
         <section>
           <h2 className="text-sm font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-secondary)' }}>
             Altres
           </h2>
           <div className="space-y-2">
-            {sensEtapa.map((d: any) => (
+            {altresSenseEtapa.map((d: any) => (
               <div key={d.id} className="card flex items-center gap-3">
                 <div
                   className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0"
