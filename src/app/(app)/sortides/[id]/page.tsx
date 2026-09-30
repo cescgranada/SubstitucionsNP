@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import SortidaDetall from './SortidaDetall'
-import { esEquipDirectiu } from '@/lib/roles'
+import { esEquipDirectiu, esPas } from '@/lib/roles'
 
 export default async function SortidaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -23,6 +23,9 @@ export default async function SortidaPage({ params }: { params: Promise<{ id: st
       proposador:proposada_per(id, nom),
       aprovador:aprovada_per(nom),
       eliminador:eliminada_per(nom),
+      dinar_demanat_per:dinar_demanat_per(nom),
+      transport_demanat_per:transport_demanat_per(nom),
+      pagament_fet_per:pagament_fet_per(nom),
       sortida_grups(id, grup:grup_id(id, nom, codi)),
       sortida_acompanyants(id, docent:docent_id(id, nom))
     `)
@@ -37,6 +40,7 @@ export default async function SortidaPage({ params }: { params: Promise<{ id: st
     .eq('docent_id', docent.id)
 
   const esGestor = esEquipDirectiu(rols)
+  const esUsuariPas = esPas(rols)
 
   const esProposador = sortida.proposador?.id === docent.id
 
@@ -46,6 +50,7 @@ export default async function SortidaPage({ params }: { params: Promise<{ id: st
       docentActualId={docent.id}
       esGestor={!!esGestor}
       esProposador={esProposador}
+      esPas={esUsuariPas}
     />
   )
 }

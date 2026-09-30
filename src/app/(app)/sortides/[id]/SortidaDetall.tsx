@@ -2,13 +2,14 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { actualitzarEstatSortida, eliminarSortida } from '@/lib/actions/sortides'
+import { actualitzarEstatSortida, eliminarSortida, marcarGestioSortida } from '@/lib/actions/sortides'
 
 interface Props {
   sortida: any
   docentActualId: string
   esGestor: boolean
   esProposador: boolean
+  esPas: boolean
 }
 
 const TEXT_TRANSPORT: Record<string, string> = {
@@ -23,11 +24,21 @@ function formatDataHora(iso: string): string {
   })
 }
 
-export default function SortidaDetall({ sortida, docentActualId, esGestor, esProposador }: Props) {
+export default function SortidaDetall({ sortida, docentActualId, esGestor, esProposador, esPas }: Props) {
   const router = useRouter()
   const [loading, setLoading] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
   const [confirmantEliminar, setConfirmantEliminar] = useState(false)
+
+  const calTransport = !!sortida.transport && sortida.transport !== 'peu'
+  const teAlgunaGestio = sortida.necessita_dinar || calTransport || sortida.requereix_pagament
+
+  const handleToggleGestio = async (camp: 'dinar' | 'transport' | 'pagament', valorActual: boolean) => {
+    setLoading(`gestio-${camp}`)
+    await marcarGestioSortida({ sortidaId: sortida.id, camp, valor: !valorActual, docentActualId })
+    setLoading(null)
+    router.refresh()
+  }
 
   const estaEliminada = sortida.estat === 'eliminada'
 
@@ -262,6 +273,50 @@ export default function SortidaDetall({ sortida, docentActualId, esGestor, esPro
         )}
       </div>
 
+      {/* Gestió logística (PAS) — només un cop aprovada */}
+      {sortida.estat === 'aprovada' && teAlgunaGestio && (
+        <div className="card">
+          <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>
+            Gestió logística
+          </h2>
+          <div className="space-y-2">
+            {sortida.necessita_dinar && (
+              <GestioItem
+                etiqueta="Dinar demanat"
+                fet={sortida.dinar_demanat}
+                per={sortida.dinar_demanat_per?.nom}
+                at={sortida.dinar_demanat_at}
+                editable={esPas}
+                loading={loading === 'gestio-dinar'}
+                onToggle={() => handleToggleGestio('dinar', sortida.dinar_demanat)}
+              />
+            )}
+            {calTransport && (
+              <GestioItem
+                etiqueta="Transport demanat"
+                fet={sortida.transport_demanat}
+                per={sortida.transport_demanat_per?.nom}
+                at={sortida.transport_demanat_at}
+                editable={esPas}
+                loading={loading === 'gestio-transport'}
+                onToggle={() => handleToggleGestio('transport', sortida.transport_demanat)}
+              />
+            )}
+            {sortida.requereix_pagament && (
+              <GestioItem
+                etiqueta="Pagament realitzat"
+                fet={sortida.pagament_fet}
+                per={sortida.pagament_fet_per?.nom}
+                at={sortida.pagament_fet_at}
+                editable={esPas}
+                loading={loading === 'gestio-pagament'}
+                onToggle={() => handleToggleGestio('pagament', sortida.pagament_fet)}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Acompanyants */}
       {acompanyants.length > 0 && (
         <div className="card">
@@ -286,5 +341,71 @@ export default function SortidaDetall({ sortida, docentActualId, esGestor, esPro
         </div>
       )}
     </div>
+  )
+}
+
+function GestioItem({
+  etiqueta, fet, per, at, editable, loading, onToggle,
+}: {
+  etiqueta: string
+  fet: boolean
+  per?: string
+  at?: string
+  editable: boolean
+  loading: boolean
+  onToggle: () => void
+}) {
+  const contingut = (
+    <div className="min-w-0">
+      <p className="text-sm font-medium" style={{ color: fet ? '#166534' : 'var(--color-text)' }}>
+        {etiqueta}
+      </p>
+      {fet && per && (
+        <p className="text-xs mt-0.5" style={{ color: '#166534' }}>
+          Fet per {per}{at && ` · ${new Date(at).toLocaleDateString('ca-ES', { day: 'numeric', month: 'short' })}`}
+        </p>
+      )}
+      {!fet && !editable && (
+        <p className="text-xs mt-0.5" style={{ color: 'var(--color-warning)' }}>Pendent</p>
+      )}
+    </div>
+  )
+
+  const icona = (
+    <span
+      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 border-2"
+      style={{
+        backgroundColor: fet ? '#27AE60' : 'white',
+        borderColor: fet ? '#27AE60' : 'var(--color-border)',
+      }}
+    >
+      {fet && (
+        <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+        </svg>
+      )}
+    </span>
+  )
+
+  if (!editable) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5" style={{ backgroundColor: fet ? '#DCFCE7' : 'var(--color-secondary-light)' }}>
+        {contingut}
+        {icona}
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={loading}
+      className="w-full flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-colors"
+      style={{ backgroundColor: fet ? '#DCFCE7' : 'var(--color-secondary-light)', cursor: loading ? 'not-allowed' : 'pointer' }}
+    >
+      {contingut}
+      {icona}
+    </button>
   )
 }

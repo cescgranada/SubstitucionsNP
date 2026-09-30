@@ -73,7 +73,7 @@ export default async function AppLayout({
         </main>
 
         {/* Navegació inferior — visible només a mòbil */}
-        <BottomNav />
+        <BottomNav rols={rols} />
       </div>
     </ToastProvider>
   )
