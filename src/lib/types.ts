@@ -86,6 +86,7 @@ export type Absencia = {
 }
 
 export type EstatSortida = 'proposta' | 'aprovada' | 'rebutjada' | 'eliminada'
+export type Transport = 'peu' | 'autocar' | 'transport_public'
 
 export type Sortida = {
   id: string
@@ -98,6 +99,10 @@ export type Sortida = {
   aprovada_per: string | null
   data_aprovacio: string | null
   observacions: string | null
+  necessita_dinar: boolean
+  transport: Transport | null
+  requereix_pagament: boolean
+  data_limit_pagament: string | null
   google_event_id: string | null
   eliminada_per: string | null
   eliminada_at: string | null

@@ -11,6 +11,12 @@ interface Props {
   esProposador: boolean
 }
 
+const TEXT_TRANSPORT: Record<string, string> = {
+  peu: 'A peu',
+  autocar: 'Autocar',
+  transport_public: 'Transport públic',
+}
+
 function formatDataHora(iso: string): string {
   return new Date(iso).toLocaleDateString('ca-ES', {
     day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -118,6 +124,29 @@ export default function SortidaDetall({ sortida, docentActualId, esGestor, esPro
             <div className="flex justify-between gap-4">
               <dt style={{ color: 'var(--color-text-secondary)' }}>Grups</dt>
               <dd className="font-medium text-right">{grupsNoms}</dd>
+            </div>
+          )}
+          {sortida.transport && (
+            <div className="flex justify-between">
+              <dt style={{ color: 'var(--color-text-secondary)' }}>Transport</dt>
+              <dd className="font-medium">{TEXT_TRANSPORT[sortida.transport] ?? sortida.transport}</dd>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <dt style={{ color: 'var(--color-text-secondary)' }}>Dinar</dt>
+            <dd className="font-medium">{sortida.necessita_dinar ? 'Sí' : 'No'}</dd>
+          </div>
+          {sortida.requereix_pagament && (
+            <div className="flex justify-between">
+              <dt style={{ color: 'var(--color-text-secondary)' }}>Pagament</dt>
+              <dd className="font-medium text-right">
+                Cal pagar
+                {sortida.data_limit_pagament && (
+                  <span className="block text-xs" style={{ color: 'var(--color-warning)' }}>
+                    Data límit: {new Date(sortida.data_limit_pagament + 'T12:00:00').toLocaleDateString('ca-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  </span>
+                )}
+              </dd>
             </div>
           )}
           {sortida.aprovador?.nom && (
