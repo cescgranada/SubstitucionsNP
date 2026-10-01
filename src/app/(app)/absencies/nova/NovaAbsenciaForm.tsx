@@ -213,7 +213,7 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
               value={horaInici}
               onChange={(e) => setHoraInici(e.target.value)}
               min="08:00"
-              max="17:05"
+              max="22:00"
               step={900}
             />
           </div>
@@ -225,7 +225,7 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
               value={horaFi}
               onChange={(e) => setHoraFi(e.target.value)}
               min="08:00"
-              max="17:05"
+              max="22:00"
               step={900}
             />
           </div>
