@@ -290,6 +290,15 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
   const diesAProcesar = dies.filter(d => !diesJaProcessats.has(d))
   if (diesAProcesar.length === 0) return { ok: true }
 
+  // Feina que el docent ha escrit en comunicar l'absència (per franja i dia)
+  const { data: feinesDesades } = await supabase
+    .from('absencia_feines')
+    .select('horari_setmanal_id, data, feina')
+    .eq('absencia_id', absenciaId)
+  const feinaPer = new Map<string, string>(
+    (feinesDesades ?? []).map(f => [`${f.horari_setmanal_id}|${f.data}`, f.feina as string])
+  )
+
   // Etapa del docent absent (primera etapa)
   const { data: etapes } = await supabase
     .from('docent_etapes')
@@ -343,6 +352,7 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
           estat: 'confirmada',
           proposat_per_ia: false,
           motiu_proposta_ia: 'Codocència: cobert per la parella docent',
+          feina_substitut: feinaPer.get(`${h.id}|${data}`) ?? null,
         })
         continue
       }
@@ -364,6 +374,7 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
         estat: substitutId ? 'proposta_ia' : 'pendent',
         proposat_per_ia: !!substitutId,
         motiu_proposta_ia: motiuProposta,
+        feina_substitut: feinaPer.get(`${h.id}|${data}`) ?? null,
       })
     }
 
@@ -430,6 +441,71 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
   return { ok: true }
 }
 
+export type ClasseAfectada = {
+  horariId: string
+  data: string
+  horaInici: string
+  horaFi: string
+  grup: string | null
+  materia: string | null
+}
+
+/**
+ * Classes que el docent deixaria de fer amb les dates/franja indicades.
+ * S'usa al formulari de comunicar absència perquè pugui deixar-hi la feina.
+ */
+export async function classesAfectadesPreview(params: {
+  data: string
+  dataFi?: string
+  totElDia: boolean
+  horaInici?: string
+  horaFi?: string
+}): Promise<ClasseAfectada[]> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const { data: docent } = await supabase
+    .from('docents').select('id').eq('email', user.email!).single()
+  if (!docent) return []
+
+  const dies = diesLaborables(params.data, params.dataFi ?? params.data)
+  if (dies.length === 0 || dies.length > 31) return []
+
+  const { data: horari } = await supabase
+    .from('horari_setmanal')
+    .select(`
+      id, dia_setmana, tipus, materia,
+      franja:franja_id(hora_inici, hora_fi),
+      grup:grup_id(nom)
+    `)
+    .eq('docent_id', docent.id)
+
+  const resultat: ClasseAfectada[] = []
+  for (const data of dies) {
+    const diaNum = diaSetmana(data)
+    for (const h of (horari ?? []) as any[]) {
+      if (h.dia_setmana !== diaNum) continue
+      if (['guardia', 'reunio', 'esbarjo', 'disponible'].includes(h.tipus)) continue
+      const franja = Array.isArray(h.franja) ? h.franja[0] : h.franja
+      const grup = Array.isArray(h.grup) ? h.grup[0] : h.grup
+      const hi = franja?.hora_inici ?? '00:00'
+      const hf = franja?.hora_fi ?? '23:59'
+      const parcial = !params.totElDia && params.horaInici && params.horaFi && !params.dataFi
+      if (parcial && !(hi < params.horaFi! && hf > params.horaInici!)) continue
+      resultat.push({
+        horariId: h.id,
+        data,
+        horaInici: hi.slice(0, 5),
+        horaFi: hf.slice(0, 5),
+        grup: grup?.nom ?? null,
+        materia: h.materia ?? null,
+      })
+    }
+  }
+  return resultat.sort((x, y) => x.data.localeCompare(y.data) || x.horaInici.localeCompare(y.horaInici))
+}
+
 /**
  * Crea una nova absència i, si s'aprova automàticament, genera les substitucions.
  */
@@ -442,6 +518,7 @@ export async function crearAbsencia(params: {
   horaInici?: string
   horaFi?: string
   observacions?: string
+  feines?: { horariId: string; data: string; feina: string }[]
 }): Promise<{ ok: boolean; absenciaId?: string; error?: string }> {
   const supabase = await createClient()
 
@@ -503,6 +580,21 @@ export async function crearAbsencia(params: {
     .single()
 
   if (error || !absencia) return { ok: false, error: error?.message ?? 'Error desconegut' }
+
+  // Desa la feina escrita al formulari (es copiarà a cada substitució en
+  // generar-les, ara mateix o quan s'aprovi).
+  const feinesAGuardar = (params.feines ?? []).filter(f => f.feina.trim())
+  if (feinesAGuardar.length > 0) {
+    const { error: errFeines } = await supabase.from('absencia_feines').insert(
+      feinesAGuardar.map(f => ({
+        absencia_id: absencia.id,
+        horari_setmanal_id: f.horariId,
+        data: f.data,
+        feina: f.feina.trim(),
+      }))
+    )
+    if (errFeines) console.error('Error desant la feina:', errFeines.message)
+  }
 
   if (estat === 'aprovada') {
     const gen = await generarSubstitucions(absencia.id)

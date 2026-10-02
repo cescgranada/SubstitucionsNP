@@ -1,8 +1,8 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { crearAbsencia } from '@/lib/actions/generar-substitucions'
+import { crearAbsencia, classesAfectadesPreview, type ClasseAfectada } from '@/lib/actions/generar-substitucions'
 import { useToast } from '@/components/ui/Toast'
 
 interface Props {
@@ -28,6 +28,32 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
   // Guarda addicional a `loading`: evita un doble enviament si l'usuari fa
   // doble clic abans que React torni a renderitzar el botó com a disabled.
   const enviantRef = useRef(false)
+
+  // Classes que el docent perdria amb les dates triades, i la feina que hi deixa
+  const [classes, setClasses] = useState<ClasseAfectada[]>([])
+  const [carregantClasses, setCarregantClasses] = useState(false)
+  const [feines, setFeines] = useState<Record<string, string>>({})
+  const claveClasse = (c: ClasseAfectada) => `${c.horariId}|${c.data}`
+
+  useEffect(() => {
+    if (!data || (multiDia && !dataFi)) {
+      setClasses([])
+      return
+    }
+    let cancel = false
+    setCarregantClasses(true)
+    classesAfectadesPreview({
+      data,
+      dataFi: multiDia && dataFi ? dataFi : undefined,
+      totElDia: multiDia ? true : totElDia,
+      horaInici: totElDia || multiDia ? undefined : horaInici || undefined,
+      horaFi: totElDia || multiDia ? undefined : horaFi || undefined,
+    })
+      .then(r => { if (!cancel) setClasses(r) })
+      .catch(console.error)
+      .finally(() => { if (!cancel) setCarregantClasses(false) })
+    return () => { cancel = true }
+  }, [data, dataFi, multiDia, totElDia, horaInici, horaFi])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -60,6 +86,9 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
         horaInici: totElDia || multiDia ? undefined : horaInici,
         horaFi: totElDia || multiDia ? undefined : horaFi,
         observacions: observacions || undefined,
+        feines: classes
+          .map(c => ({ horariId: c.horariId, data: c.data, feina: feines[claveClasse(c)] ?? '' }))
+          .filter(f => f.feina.trim()),
       })
 
       if (!result.ok) {
@@ -230,6 +259,46 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
             />
           </div>
         </div>
+      )}
+
+      {/* Classes afectades: aquí es deixa la feina per al substitut */}
+      {data && (carregantClasses || classes.length > 0) && (
+        <div>
+          <label>Classes que no faràs i feina per als alumnes</label>
+          {carregantClasses && classes.length === 0 ? (
+            <p className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>Carregant les teves classes...</p>
+          ) : (
+            <div className="space-y-3 mt-2">
+              {classes.map(c => (
+                <div
+                  key={claveClasse(c)}
+                  className="rounded-lg p-3"
+                  style={{ backgroundColor: 'var(--color-accent-light)' }}
+                >
+                  <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+                    {new Date(c.data + 'T12:00:00').toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
+                    {' · '}{c.horaInici}–{c.horaFi}
+                    {c.grup && ` · ${c.grup}`}
+                    {c.materia && ` · ${c.materia}`}
+                  </p>
+                  <textarea
+                    rows={2}
+                    value={feines[claveClasse(c)] ?? ''}
+                    onChange={(e) => setFeines(prev => ({ ...prev, [claveClasse(c)]: e.target.value }))}
+                    placeholder="Què han de fer els alumnes? (ho veurà qui et substitueixi)"
+                    className="mt-2"
+                    style={{ minHeight: 'auto', resize: 'none' }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {data && !carregantClasses && classes.length === 0 && (
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+          No tens classes amb alumnes en les dates o franja triades.
+        </p>
       )}
 
       {/* Observacions */}
