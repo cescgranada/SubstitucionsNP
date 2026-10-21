@@ -4,6 +4,14 @@ import { createClient } from '@/lib/supabase/server'
 import { enviarNotificacioSubstitut } from '@/lib/email'
 import { esEquipDirectiu } from '@/lib/roles'
 
+/** Id del docent que té la sessió iniciada (per correu), o null. */
+async function docentActualId(supabase: Awaited<ReturnType<typeof createClient>>): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user?.email) return null
+  const { data } = await supabase.from('docents').select('id').eq('email', user.email).single()
+  return data?.id ?? null
+}
+
 /**
  * Confirma una substitució, assigna el substitut i envia email de notificació.
  */
@@ -15,38 +23,49 @@ export async function confirmarSubstitucio(params: {
 }): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient()
 
+  // L'actor es dedueix de la sessió, no del paràmetre rebut del client
+  const gestorId = await docentActualId(supabase)
+  if (!gestorId) return { ok: false, error: 'Sessió no vàlida' }
+
   // Verifica que qui confirma és de l'equip directiu
   const { data: rols } = await supabase
     .from('docent_rols')
     .select('rol')
-    .eq('docent_id', params.docentGestorId)
+    .eq('docent_id', gestorId)
 
   if (!esEquipDirectiu(rols)) return { ok: false, error: 'Sense permís per confirmar substitucions' }
 
   const { data: actual } = await supabase
     .from('substitucions')
-    .select('estat')
+    .select('estat, absencia:absencia_id(docent_id)')
     .eq('id', params.substitucioId)
     .single()
 
   if (!actual) return { ok: false, error: 'Substitució no trobada' }
   if (actual.estat === 'eliminada') return { ok: false, error: 'Aquesta substitució ha estat eliminada' }
+  if ((actual.absencia as any)?.docent_id === params.substitutId) {
+    return { ok: false, error: 'El docent absent no pot ser el seu propi substitut' }
+  }
 
   // Actualitza la substitució. La validació final i l'assignació real
   // del substitut sempre la fa, manualment, un membre de l'equip directiu
   // (verificat més amunt) — queda registrat qui i quan.
-  const { error } = await supabase
+  const { data: actualitzades, error } = await supabase
     .from('substitucions')
     .update({
       substitut_id: params.substitutId,
       estat: 'confirmada',
-      confirmat_per: params.docentGestorId,
+      confirmat_per: gestorId,
       confirmat_at: new Date().toISOString(),
       feina_substitut: params.feinaSubstitut || null,
     })
     .eq('id', params.substitucioId)
+    .select('id')
 
   if (error) return { ok: false, error: error.message }
+  if (!actualitzades || actualitzades.length === 0) {
+    return { ok: false, error: 'No s\'ha pogut desar la confirmació (sense permís)' }
+  }
 
   // Carrega dades per al correu
   const { data: substitucio } = await supabase
@@ -101,6 +120,10 @@ export async function marcarSenseSubstitucio(
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient()
 
+  const gestorId = await docentActualId(supabase)
+  if (!gestorId) return { ok: false, error: 'Sessió no vàlida' }
+  docentGestorId = gestorId
+
   const { data: rols } = await supabase
     .from('docent_rols')
     .select('rol')
@@ -117,7 +140,7 @@ export async function marcarSenseSubstitucio(
   if (!actual) return { ok: false, error: 'Substitució no trobada' }
   if (actual.estat === 'eliminada') return { ok: false, error: 'Aquesta substitució ha estat eliminada' }
 
-  const { error } = await supabase
+  const { data: actualitzades, error } = await supabase
     .from('substitucions')
     .update({
       estat: 'no_cal',
@@ -126,8 +149,12 @@ export async function marcarSenseSubstitucio(
       confirmat_at: new Date().toISOString(),
     })
     .eq('id', substitucioId)
+    .select('id')
 
   if (error) return { ok: false, error: error.message }
+  if (!actualitzades || actualitzades.length === 0) {
+    return { ok: false, error: 'No s\'ha pogut desar el canvi (sense permís)' }
+  }
 
   return { ok: true }
 }

@@ -90,9 +90,64 @@ export default async function SubstitucioPage({ params }: { params: Promise<{ id
     }
   }
 
+  // Resta de docents (per si falta gent): tothom qui no és candidat prioritari,
+  // amb el que fa en aquesta franja perquè l'equip directiu decideixi amb criteri.
+  let altres: { id: string; nom: string; ocupacio: string; ocupat: boolean }[] = []
+  if (esGestor && ['pendent', 'proposta_ia'].includes(substitucio.estat)) {
+    const franjaId = substitucio.horari_setmanal?.franja?.id
+    const diaNum = new Date(substitucio.data + 'T12:00:00').getDay()
+    const absentId = substitucio.absencia?.docent?.id ?? ''
+
+    const [{ data: tots }, { data: rolsPas }] = await Promise.all([
+      supabase.from('docents').select('id, nom').eq('actiu', true).order('nom'),
+      supabase.from('docent_rols').select('docent_id').eq('rol', 'pas'),
+    ])
+    const idsPas = new Set((rolsPas ?? []).map((r: any) => r.docent_id))
+    const idsCandidats = new Set(candidats.map((c: any) => c.docent_id))
+
+    const horariPerDocent = new Map<string, { tipus: string; grup?: string }>()
+    const ocupatsPerSubstitucio = new Set<string>()
+    if (franjaId && diaNum > 0) {
+      const { data: horaris } = await supabase
+        .from('horari_setmanal')
+        .select('docent_id, tipus, grup:grup_id(nom)')
+        .eq('franja_id', franjaId)
+        .eq('dia_setmana', diaNum)
+      for (const h of (horaris ?? []) as any[]) {
+        horariPerDocent.set(h.docent_id, { tipus: h.tipus, grup: h.grup?.nom })
+      }
+
+      const { data: subsMateixaFranja } = await supabase
+        .from('substitucions')
+        .select('id, substitut_id, horari_setmanal:horari_setmanal_id(franja_id)')
+        .eq('data', substitucio.data)
+        .eq('estat', 'confirmada')
+      for (const s of (subsMateixaFranja ?? []) as any[]) {
+        if (s.id !== substitucio.id && s.substitut_id && s.horari_setmanal?.franja_id === franjaId) {
+          ocupatsPerSubstitucio.add(s.substitut_id)
+        }
+      }
+    }
+
+    const TEXT: Record<string, string> = {
+      classe: 'Té classe', guardia: 'Guàrdia', permanencia: 'Permanència', reunio: 'Reunió',
+      esbarjo: 'Esbarjo', hnl: 'Hora no lectiva', disponible: 'Disponible',
+    }
+    altres = (tots ?? [])
+      .filter((d: any) => d.id !== absentId && !idsPas.has(d.id) && !idsCandidats.has(d.id))
+      .map((d: any) => {
+        const h = horariPerDocent.get(d.id)
+        const jaSubstitueix = ocupatsPerSubstitucio.has(d.id)
+        let ocupacio = h ? (TEXT[h.tipus] ?? h.tipus) + (h.grup ? ` · ${h.grup}` : '') : 'Sense horari en aquesta franja'
+        if (jaSubstitueix) ocupacio = 'Ja substitueix en aquesta franja'
+        return { id: d.id, nom: d.nom, ocupacio, ocupat: jaSubstitueix || h?.tipus === 'classe' || h?.tipus === 'reunio' }
+      })
+  }
+
   return (
     <SubstitucioDetall
       substitucio={substitucio}
+      altres={altres}
       candidats={candidats}
       docentActualId={docent.id}
       esGestor={!!esGestor}
