@@ -37,6 +37,7 @@ function formatDataHora(iso: string): string {
 interface Props {
   substitucio: any
   candidats: any[]
+  altres: { id: string; nom: string; ocupacio: string; ocupat: boolean }[]
   docentActualId: string
   esGestor: boolean
   esDocentAbsent: boolean
@@ -45,6 +46,7 @@ interface Props {
 export default function SubstitucioDetall({
   substitucio,
   candidats,
+  altres,
   docentActualId,
   esGestor,
   esDocentAbsent,
@@ -56,6 +58,10 @@ export default function SubstitucioDetall({
   const [substitutSeleccionat, setSubstitutSeleccionat] = useState<string>(
     substitucio.substitut_id ?? ''
   )
+  const [mostrarAltres, setMostrarAltres] = useState(
+    !!substitucio.substitut_id && altres.some(a => a.id === substitucio.substitut_id)
+  )
+  const [cerca, setCerca] = useState('')
   const [feina, setFeina] = useState(substitucio.feina_substitut ?? '')
   const [editantFeina, setEditantFeina] = useState(false)
   const [feinaDraft, setFeinaDraft] = useState(substitucio.feina_substitut ?? '')
@@ -299,6 +305,57 @@ export default function SubstitucioDetall({
             <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               No hi ha candidats prioritaris disponibles en aquesta franja.
             </p>
+          )}
+
+          {altres.length > 0 && (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setMostrarAltres(v => !v)}
+                className="text-sm font-medium"
+                style={{ color: 'var(--color-accent)' }}
+              >
+                {mostrarAltres ? '− Amagar la resta de docents' : '+ Triar un altre docent (falta gent)'}
+              </button>
+              {mostrarAltres && (
+                <>
+                  <input
+                    type="search"
+                    value={cerca}
+                    onChange={(e) => setCerca(e.target.value)}
+                    placeholder="Cerca per nom..."
+                  />
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {altres
+                      .filter(a => a.nom.toLowerCase().includes(cerca.toLowerCase()))
+                      .map(a => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => setSubstitutSeleccionat(a.id)}
+                          className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-lg border text-sm transition-colors"
+                          style={{
+                            borderColor: substitutSeleccionat === a.id ? 'var(--color-primary)' : 'var(--color-border)',
+                            backgroundColor: substitutSeleccionat === a.id ? 'var(--color-primary-light)' : 'white',
+                            color: 'var(--color-text)',
+                          }}
+                        >
+                          <span className="font-medium text-left">{a.nom}</span>
+                          <span
+                            className="text-xs text-right"
+                            style={{ color: a.ocupat ? '#991B1B' : 'var(--color-text-secondary)' }}
+                          >
+                            {a.ocupacio}
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    En vermell, docents que en aquesta franja ja tenen classe, reunió o una altra substitució.
+                  </p>
+                </>
+              )}
+            </div>
           )}
 
           {errorMsg && (
