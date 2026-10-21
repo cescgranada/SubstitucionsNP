@@ -176,6 +176,12 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
               <dd className="font-medium">{absencia.aprovador.nom}</dd>
             </div>
           )}
+          {absencia.comunicador && (
+            <div className="flex justify-between">
+              <dt style={{ color: 'var(--color-text-secondary)' }}>Comunicada per</dt>
+              <dd className="font-medium">{absencia.comunicador.nom}</dd>
+            </div>
+          )}
           {estaEliminada && absencia.eliminador && (
             <div className="flex justify-between">
               <dt style={{ color: 'var(--color-text-secondary)' }}>Eliminada per</dt>

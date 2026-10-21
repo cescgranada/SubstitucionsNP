@@ -7,6 +7,7 @@ import {
   enviarNotificacioRessolucioAbsencia,
   enviarNotificacioCoordinador,
   enviarNotificacioSubstitucioAnullada,
+  enviarNotificacioAbsenciaComunicadaPerAltre,
 } from '@/lib/email'
 import { esEquipDirectiu } from '@/lib/roles'
 
@@ -455,6 +456,8 @@ export type ClasseAfectada = {
  * S'usa al formulari de comunicar absència perquè pugui deixar-hi la feina.
  */
 export async function classesAfectadesPreview(params: {
+  /** Només l'equip directiu pot demanar les classes d'un altre docent */
+  docentId?: string
   data: string
   dataFi?: string
   totElDia: boolean
@@ -469,6 +472,14 @@ export async function classesAfectadesPreview(params: {
     .from('docents').select('id').eq('email', user.email!).single()
   if (!docent) return []
 
+  let docentIdObjectiu = docent.id
+  if (params.docentId && params.docentId !== docent.id) {
+    const { data: rolsActor } = await supabase
+      .from('docent_rols').select('rol').eq('docent_id', docent.id)
+    if (!esEquipDirectiu(rolsActor)) return []
+    docentIdObjectiu = params.docentId
+  }
+
   const dies = diesLaborables(params.data, params.dataFi ?? params.data)
   if (dies.length === 0 || dies.length > 31) return []
 
@@ -479,7 +490,7 @@ export async function classesAfectadesPreview(params: {
       franja:franja_id(hora_inici, hora_fi),
       grup:grup_id(nom)
     `)
-    .eq('docent_id', docent.id)
+    .eq('docent_id', docentIdObjectiu)
 
   const resultat: ClasseAfectada[] = []
   for (const data of dies) {
@@ -520,6 +531,9 @@ export async function crearAbsencia(params: {
   observacions?: string
   feines?: { horariId: string; data: string; feina: string }[]
 }): Promise<{ ok: boolean; absenciaId?: string; error?: string }> {
+  // `docentId` és qui s'absenta. Qui executa l'acció pot ser ell mateix o,
+  // en nom seu, algú de l'equip directiu (que mai pot demanar dies personals
+  // per un altre: això només ho pot fer la pròpia persona).
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -531,8 +545,16 @@ export async function crearAbsencia(params: {
     .eq('email', user.email!)
     .single()
 
-  if (!docent || docent.id !== params.docentId) {
-    return { ok: false, error: 'Sense permís' }
+  if (!docent) return { ok: false, error: 'Sense permís' }
+
+  const esPerAltre = docent.id !== params.docentId
+  if (esPerAltre) {
+    const { data: rolsActor } = await supabase
+      .from('docent_rols').select('rol').eq('docent_id', docent.id)
+    if (!esEquipDirectiu(rolsActor)) return { ok: false, error: 'Sense permís' }
+    if (params.motiu === 'dia_personal') {
+      return { ok: false, error: 'Els dies personals només els pot comunicar la pròpia persona.' }
+    }
   }
 
   // Si hi ha data_fi, forcem tot_el_dia = true
@@ -544,7 +566,7 @@ export async function crearAbsencia(params: {
     .from('absencies')
     .select('id, data, data_fi')
     .eq('docent_id', params.docentId)
-    .not('estat', 'in', '("rebutjada","cancel·lada")')
+    .not('estat', 'in', '("rebutjada","cancel·lada","eliminada")')
 
   const seSolapa = absenciesExistents?.some(a => {
     const existentFi = a.data_fi ?? a.data
@@ -552,7 +574,7 @@ export async function crearAbsencia(params: {
   })
 
   if (seSolapa) {
-    return { ok: false, error: 'Ja tens una absència registrada que es solapa amb les dates indicades.' }
+    return { ok: false, error: esPerAltre ? 'Aquest docent ja té una absència registrada que es solapa amb les dates indicades.' : 'Ja tens una absència registrada que es solapa amb les dates indicades.' }
   }
 
   const estat = params.motiu === 'dia_personal' ? 'pendent' : 'aprovada'
@@ -575,6 +597,7 @@ export async function crearAbsencia(params: {
       hora_fi: totElDia ? null : (params.horaFi ?? null),
       observacions: params.observacions ?? null,
       estat,
+      comunicada_per: esPerAltre ? docent.id : null,
     })
     .select('id')
     .single()
@@ -594,6 +617,21 @@ export async function crearAbsencia(params: {
       }))
     )
     if (errFeines) console.error('Error desant la feina:', errFeines.message)
+  }
+
+  // Si l'ha comunicada l'equip directiu, avisem el docent perquè hi deixi la feina
+  if (esPerAltre && docentInfo?.email) {
+    const { data: comunicador } = await supabase
+      .from('docents').select('nom').eq('id', docent.id).single()
+    enviarNotificacioAbsenciaComunicadaPerAltre({
+      emailDocent: docentInfo.email,
+      nomDocent: docentInfo.nom,
+      nomComunicador: comunicador?.nom ?? "L'equip directiu",
+      dataInici: params.data,
+      dataFi: params.dataFi ?? params.data,
+      motiu: params.motiu,
+      absenciaId: absencia.id,
+    }).catch(console.error)
   }
 
   if (estat === 'aprovada') {

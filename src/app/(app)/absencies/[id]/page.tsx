@@ -22,7 +22,8 @@ export default async function AbsenciaPage({ params }: { params: Promise<{ id: s
       *,
       docent:docent_id(id, nom, email),
       aprovador:aprovat_per(nom),
-      eliminador:eliminada_per(nom)
+      eliminador:eliminada_per(nom),
+      comunicador:comunicada_per(nom)
     `)
     .eq('id', id)
     .single()

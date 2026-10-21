@@ -382,3 +382,48 @@ export async function enviarNotificacioRessolucioAbsencia(params: {
     html: htmlBase(contingut),
   })
 }
+
+
+/**
+ * Avisa un docent que l'equip directiu li ha comunicat una absència,
+ * perquè hi pugui deixar la feina per als alumnes.
+ */
+export async function enviarNotificacioAbsenciaComunicadaPerAltre(params: {
+  emailDocent: string
+  nomDocent: string
+  nomComunicador: string
+  dataInici: string
+  dataFi: string
+  motiu: string
+  absenciaId: string
+}): Promise<void> {
+  if (!esConfigurat()) {
+    console.log('[email] Resend no configurat, saltant notificació a', params.emailDocent)
+    return
+  }
+
+  const fmt = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('ca-ES', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  })
+  const dates = params.dataInici === params.dataFi
+    ? fmt(params.dataInici)
+    : `del ${fmt(params.dataInici)} al ${fmt(params.dataFi)}`
+  const motiu = params.motiu === 'medic' ? 'Mèdic' : params.motiu === 'formacio' ? 'Formació' : params.motiu
+
+  const contingut = `
+    <p>Hola, <strong>${params.nomDocent}</strong>!</p>
+    <p><strong>${params.nomComunicador}</strong> ha comunicat una absència teva:</p>
+    <div class="info-box">
+      <div class="info-row"><span class="info-label">Dates</span><span class="info-value">${dates}</span></div>
+      <div class="info-row"><span class="info-label">Motiu</span><span class="info-value">${motiu}</span></div>
+    </div>
+    <p>Entra a SubsCoop i deixa la feina que han de fer els alumnes a cada classe, perquè la persona que et substitueixi ho sàpiga.</p>
+  `
+
+  await resend.emails.send({
+    from: FROM,
+    to: params.emailDocent,
+    subject: `${params.nomComunicador} t'ha comunicat una absència`,
+    html: htmlBase(contingut),
+  })
+}
