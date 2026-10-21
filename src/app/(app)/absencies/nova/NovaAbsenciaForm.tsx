@@ -8,12 +8,17 @@ import { useToast } from '@/components/ui/Toast'
 interface Props {
   docentId: string
   docentNom: string
+  /** Només per a l'equip directiu: llista per comunicar l'absència d'un altre docent */
+  docents?: { id: string; nom: string }[]
 }
 
-export default function NovaAbsenciaForm({ docentId }: Props) {
+export default function NovaAbsenciaForm({ docentId, docents }: Props) {
   const router = useRouter()
   const { showToast } = useToast()
 
+  // Docent que s'absenta (per defecte, el mateix usuari)
+  const [docentAbsentId, setDocentAbsentId] = useState(docentId)
+  const perAltre = docentAbsentId !== docentId
   const [data, setData] = useState('')
   const [multiDia, setMultiDia] = useState(false)
   const [dataFi, setDataFi] = useState('')
@@ -43,6 +48,7 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
     let cancel = false
     setCarregantClasses(true)
     classesAfectadesPreview({
+      docentId: docentAbsentId,
       data,
       dataFi: multiDia && dataFi ? dataFi : undefined,
       totElDia: multiDia ? true : totElDia,
@@ -53,7 +59,7 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
       .catch(console.error)
       .finally(() => { if (!cancel) setCarregantClasses(false) })
     return () => { cancel = true }
-  }, [data, dataFi, multiDia, totElDia, horaInici, horaFi])
+  }, [docentAbsentId, data, dataFi, multiDia, totElDia, horaInici, horaFi])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -78,7 +84,7 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
 
     try {
       const result = await crearAbsencia({
-        docentId,
+        docentId: docentAbsentId,
         data,
         dataFi: multiDia && dataFi ? dataFi : undefined,
         motiu,
@@ -116,6 +122,32 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="card space-y-5">
+      {/* Docent absent (només equip directiu) */}
+      {docents && docents.length > 0 && (
+        <div>
+          <label htmlFor="docent-absent">Docent que s&apos;absenta</label>
+          <select
+            id="docent-absent"
+            value={docentAbsentId}
+            onChange={(e) => {
+              setDocentAbsentId(e.target.value)
+              setFeines({})
+              if (e.target.value !== docentId && motiu === 'dia_personal') setMotiu('medic')
+            }}
+          >
+            <option value={docentId}>Jo mateix/a</option>
+            {docents.filter(d => d.id !== docentId).map(d => (
+              <option key={d.id} value={d.id}>{d.nom}</option>
+            ))}
+          </select>
+          {perAltre && (
+            <p className="text-xs mt-2" style={{ color: 'var(--color-text-secondary)' }}>
+              Comunicaràs l&apos;absència en nom d&apos;aquest docent i li arribarà un avís perquè hi pugui afegir la feina. Els dies personals només els pot demanar la pròpia persona.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Data inici */}
       <div>
         <label htmlFor="data">
@@ -170,8 +202,8 @@ export default function NovaAbsenciaForm({ docentId }: Props) {
       {/* Motiu */}
       <div>
         <label>Motiu</label>
-        <div className="grid grid-cols-3 gap-2 mt-1">
-          {(['medic', 'dia_personal', 'formacio'] as const).map((m) => (
+        <div className={`grid ${perAltre ? "grid-cols-2" : "grid-cols-3"} gap-2 mt-1`}>
+          {(['medic', 'dia_personal', 'formacio'] as const).filter(m => !(perAltre && m === 'dia_personal')).map((m) => (
             <button
               key={m}
               type="button"

@@ -77,6 +77,8 @@ export async function proposarSortida(params: {
   transport: 'peu' | 'autocar' | 'transport_public' | null
   requereixPagament: boolean
   dataLimitPagament?: string
+  /** Només equip directiu: docents que hi van (acompanyants) */
+  acompanyantsIds?: string[]
 }): Promise<{ ok: boolean; sortidaId?: string; error?: string }> {
   const supabase = await createClient()
 
@@ -126,6 +128,27 @@ export async function proposarSortida(params: {
       .from('sortida_grups')
       .insert(params.grupsIds.map(grupId => ({ sortida_id: sortida.id, grup_id: grupId })))
     if (errGrups) return { ok: false, error: 'Sortida creada però error en associar grups' }
+  }
+
+  // Si qui la proposa és equip directiu (p. ex. un cap d'etapa), la sortida
+  // queda aprovada directament, amb els docents implicats com a acompanyants.
+  const { data: rolsProposador } = await supabase
+    .from('docent_rols')
+    .select('rol')
+    .eq('docent_id', docent.id)
+
+  if (esEquipDirectiu(rolsProposador)) {
+    const acomp = await desarAcompanyants({
+      sortidaId: sortida.id,
+      docentIds: params.acompanyantsIds ?? [],
+      docentActualId: docent.id,
+    })
+    if (!acomp.ok) return { ok: false, error: 'Sortida creada però error en desar els acompanyants: ' + acomp.error }
+
+    const aprov = await actualitzarEstatSortida(sortida.id, 'aprovada', docent.id)
+    if (!aprov.ok) return { ok: false, error: 'Sortida creada però error en aprovar-la: ' + aprov.error }
+
+    return { ok: true, sortidaId: sortida.id }
   }
 
   // Recupera els noms dels grups per a la notificació
@@ -372,4 +395,70 @@ export async function eliminarSortida(
   }
 
   return { ok: true }
+}
+
+
+export type ClasseASubstituir = {
+  docentId: string
+  docentNom: string
+  horaInici: string
+  horaFi: string
+  grup: string | null
+  materia: string | null
+}
+
+/**
+ * Classes dels docents indicats que quedarien descobertes el dia/hora de
+ * la sortida. Només per a l'equip directiu (previsualització al formulari).
+ */
+export async function classesASubstituirSortida(params: {
+  data: string
+  horaInici: string
+  horaFi: string
+  docentIds: string[]
+}): Promise<ClasseASubstituir[]> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user || params.docentIds.length === 0) return []
+
+  const { data: actor } = await supabase
+    .from('docents').select('id').eq('email', user.email!).single()
+  if (!actor) return []
+  const { data: rols } = await supabase
+    .from('docent_rols').select('rol').eq('docent_id', actor.id)
+  if (!esEquipDirectiu(rols)) return []
+
+  const dia = new Date(params.data + 'T12:00:00').getDay() // 1..5 = dl..dv
+  if (dia < 1 || dia > 5) return []
+
+  const { data: horari } = await supabase
+    .from('horari_setmanal')
+    .select(`
+      docent_id, tipus, materia,
+      docent:docent_id(nom),
+      franja:franja_id(hora_inici, hora_fi),
+      grup:grup_id(nom)
+    `)
+    .in('docent_id', params.docentIds)
+    .eq('dia_setmana', dia)
+
+  const resultat: ClasseASubstituir[] = []
+  for (const h of (horari ?? []) as any[]) {
+    if (['guardia', 'reunio', 'esbarjo', 'disponible'].includes(h.tipus)) continue
+    const franja = Array.isArray(h.franja) ? h.franja[0] : h.franja
+    const grup = Array.isArray(h.grup) ? h.grup[0] : h.grup
+    const docentRel = Array.isArray(h.docent) ? h.docent[0] : h.docent
+    const hi = franja?.hora_inici ?? '00:00'
+    const hf = franja?.hora_fi ?? '23:59'
+    if (!(hi < params.horaFi && hf > params.horaInici)) continue
+    resultat.push({
+      docentId: h.docent_id,
+      docentNom: docentRel?.nom ?? '',
+      horaInici: hi.slice(0, 5),
+      horaFi: hf.slice(0, 5),
+      grup: grup?.nom ?? null,
+      materia: h.materia ?? null,
+    })
+  }
+  return resultat.sort((x, y) => x.horaInici.localeCompare(y.horaInici) || x.docentNom.localeCompare(y.docentNom))
 }

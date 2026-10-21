@@ -1,8 +1,8 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { proposarSortida } from '@/lib/actions/sortides'
+import { proposarSortida, classesASubstituirSortida, type ClasseASubstituir } from '@/lib/actions/sortides'
 import { useToast } from '@/components/ui/Toast'
 import type { Transport } from '@/lib/types'
 
@@ -35,9 +35,11 @@ function validarDataLimitPagament(dataLimit: string, dataSortida: string): strin
 interface Props {
   docentId: string
   grups: Grup[]
+  /** Només per a l'equip directiu: docents que poden anar-hi (la sortida queda aprovada) */
+  docents?: { id: string; nom: string; etapes: string[] }[]
 }
 
-export default function NovaSortidaForm({ docentId, grups }: Props) {
+export default function NovaSortidaForm({ docentId, grups, docents }: Props) {
   const router = useRouter()
   const { showToast } = useToast()
 
@@ -57,6 +59,24 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
   // Guarda addicional a `loading`: evita un doble enviament si l'usuari fa
   // doble clic abans que React torni a renderitzar el botó com a disabled.
   const enviantRef = useRef(false)
+
+  // Docents implicats (només equip directiu) i classes que quedarien descobertes
+  const esGestor = !!docents
+  const [acompanyants, setAcompanyants] = useState<string[]>([])
+  const [mostrarTotsDocents, setMostrarTotsDocents] = useState(false)
+  const [classesDescobertes, setClassesDescobertes] = useState<ClasseASubstituir[]>([])
+
+  useEffect(() => {
+    if (!esGestor || !data || acompanyants.length === 0 || horaInici >= horaFi) {
+      setClassesDescobertes([])
+      return
+    }
+    let cancel = false
+    classesASubstituirSortida({ data, horaInici, horaFi, docentIds: acompanyants })
+      .then(r => { if (!cancel) setClassesDescobertes(r) })
+      .catch(console.error)
+    return () => { cancel = true }
+  }, [esGestor, data, horaInici, horaFi, acompanyants])
 
   const toggleGrup = (id: string) => {
     setGrupsSeleccionats(prev =>
@@ -104,6 +124,7 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
         transport: transport || null,
         requereixPagament,
         dataLimitPagament: requereixPagament ? dataLimitPagament : undefined,
+        acompanyantsIds: esGestor ? acompanyants : undefined,
       })
 
       if (!result.ok) {
@@ -117,7 +138,7 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
       // aquest punt: ho confirmem al botó abans de navegar, perquè si la
       // navegació mateixa trigués o fallés, mai sembli que no s'ha fet res.
       setEstatEnviament('enviat')
-      showToast('Sortida proposada correctament.')
+      showToast(esGestor ? 'Sortida creada i aprovada.' : 'Sortida proposada correctament.')
       router.push(`/sortides/${result.sortidaId}`)
       router.refresh()
     } catch (err: unknown) {
@@ -217,6 +238,71 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
         </div>
       </div>
 
+      {/* Docents implicats (equip directiu): la sortida queda aprovada */}
+      {docents && (() => {
+        const etapesGrups = new Set(
+          grups.filter(g => grupsSeleccionats.includes(g.id)).map(g => g.etapa?.nom).filter(Boolean) as string[]
+        )
+        const candidats = docents.filter(d =>
+          mostrarTotsDocents || etapesGrups.size === 0 || d.etapes.some(e => etapesGrups.has(e))
+        )
+        return (
+          <div>
+            <label>Docents que hi van</label>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {candidats.map(d => {
+                const marcat = acompanyants.includes(d.id)
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => setAcompanyants(prev => marcat ? prev.filter(x => x !== d.id) : [...prev, d.id])}
+                    className="text-sm px-3 py-1.5 rounded-lg border transition-colors"
+                    style={{
+                      borderColor: marcat ? 'var(--color-primary)' : 'var(--color-border)',
+                      backgroundColor: marcat ? 'var(--color-primary-light)' : 'white',
+                      color: marcat ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                      fontWeight: marcat ? 600 : 400,
+                    }}
+                  >
+                    {d.nom}
+                  </button>
+                )
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => setMostrarTotsDocents(!mostrarTotsDocents)}
+              className="text-xs font-medium mt-2"
+              style={{ color: 'var(--color-accent)' }}
+            >
+              {mostrarTotsDocents ? 'Només els de les etapes dels grups' : 'Mostrar tots els docents'}
+            </button>
+
+            {classesDescobertes.length > 0 && (
+              <div className="mt-3 rounded-lg p-3" style={{ backgroundColor: 'var(--color-accent-light)' }}>
+                <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                  Classes que s&apos;hauran de substituir ({classesDescobertes.length})
+                </p>
+                <div className="space-y-1">
+                  {classesDescobertes.map((c, i) => (
+                    <p key={i} className="text-sm" style={{ color: 'var(--color-text)' }}>
+                      {c.horaInici}–{c.horaFi} · <strong>{c.docentNom}</strong>
+                      {c.grup && ` · ${c.grup}`}{c.materia && ` · ${c.materia}`}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+            {acompanyants.length > 0 && data && classesDescobertes.length === 0 && (
+              <p className="text-xs mt-2" style={{ color: 'var(--color-text-secondary)' }}>
+                Aquests docents no tenen classes en aquest dia i franja.
+              </p>
+            )}
+          </div>
+        )
+      })()}
+
       {/* Dinar */}
       <div>
         <button
@@ -314,7 +400,7 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
         className="rounded-lg px-3 py-2.5 text-xs"
         style={{ backgroundColor: 'var(--color-accent-light)', color: 'var(--color-primary)' }}
       >
-        La sortida quedarà pendent d&apos;aprovació per la coordinació o direcció.
+        {esGestor ? 'La sortida quedarà aprovada directament.' : "La sortida quedarà pendent d'aprovació per la coordinació o direcció."}
       </div>
 
       {error && (
@@ -351,7 +437,7 @@ export default function NovaSortidaForm({ docentId, grups }: Props) {
               <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
             </svg>
           )}
-          {estatEnviament === 'enviant' ? 'Enviant...' : estatEnviament === 'enviat' ? 'Enviat!' : 'Proposar sortida'}
+          {estatEnviament === 'enviant' ? 'Enviant...' : estatEnviament === 'enviat' ? 'Enviat!' : esGestor ? 'Crear sortida' : 'Proposar sortida'}
         </button>
       </div>
     </form>

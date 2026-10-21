@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import NovaAbsenciaForm from './NovaAbsenciaForm'
+import { esEquipDirectiu } from '@/lib/roles'
 
 export default async function NovaAbsenciaPage() {
   const supabase = await createClient()
@@ -13,6 +14,13 @@ export default async function NovaAbsenciaPage() {
 
   if (!docent) return null
 
+  // L'equip directiu pot comunicar l'absència d'un altre docent
+  const { data: rols } = await supabase
+    .from('docent_rols').select('rol').eq('docent_id', docent.id)
+  const { data: docents } = esEquipDirectiu(rols)
+    ? await supabase.from('docents').select('id, nom').eq('actiu', true).order('nom')
+    : { data: null }
+
   return (
     <div className="max-w-lg">
       <div className="flex items-center gap-3 mb-6">
@@ -25,7 +33,7 @@ export default async function NovaAbsenciaPage() {
         Comunicar absència
       </h1>
 
-      <NovaAbsenciaForm docentId={docent.id} docentNom={docent.nom} />
+      <NovaAbsenciaForm docentId={docent.id} docentNom={docent.nom} docents={docents ?? undefined} />
     </div>
   )
 }
