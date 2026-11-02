@@ -360,6 +360,8 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
 
     for (const h of franguesOrdenades) {
       if (['guardia', 'reunio', 'esbarjo', 'disponible'].includes(h.tipus)) continue
+      // De 13h00 a 15h00 (migdia) no hi ha classes ni substitucions
+      if ((h.franja?.hora_inici ?? '') < '15:00' && (h.franja?.hora_fi ?? '') > '13:00') continue
 
       if (h.tipus_parella === 'codocencia') {
         substitucionsACrear.push({
