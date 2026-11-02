@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { agruparBlocs, textHoraBloc } from '@/lib/substitucions-blocs'
 
 const MOTIUS: Record<string, string> = {
   medic: 'Mèdic',
@@ -27,6 +28,9 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
   const dataFormatada = new Date(data + 'T12:00:00').toLocaleDateString('ca-ES', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
+
+  // Les franges seguides de la mateixa classe es mostren com un sol bloc
+  const blocs = agruparBlocs(subsInicials as any[])
 
   // Agrupa per docent absent
   const perDocentAbsent = subsInicials.reduce((acc: Record<string, any>, s: any) => {
@@ -133,7 +137,10 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
                 </tr>
               </thead>
               <tbody>
-                {subsInicials.map((s: any, i: number) => (
+                {blocs.map((b, i: number) => {
+                  const s: any = b.primera
+                  const substituts = Array.from(new Set(b.files.map((f: any) => f.substitut?.nom).filter(Boolean)))
+                  return (
                   <tr
                     key={s.id}
                     style={{
@@ -142,7 +149,7 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
                     }}
                   >
                     <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontWeight: 500, color: 'var(--color-primary)', whiteSpace: 'nowrap' }}>
-                      {s.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{s.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
+                      {textHoraBloc(b)}
                     </td>
                     <td style={{ padding: '10px 12px', color: 'var(--color-text)' }}>
                       <span className="font-medium">{s.horari_setmanal?.grup?.nom ?? '—'}</span>
@@ -162,9 +169,9 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
                       {MOTIUS[s.absencia?.motiu] ?? '—'}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
-                      {s.substitut?.nom ? (
+                      {substituts.length > 0 ? (
                         <span className="font-medium" style={{ color: s.estat === 'confirmada' ? 'var(--color-success)' : 'var(--color-accent)' }}>
-                          {s.substitut.nom}
+                          {substituts.join(' / ')}
                         </span>
                       ) : s.estat === 'no_cal' ? (
                         <span style={{ color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>No cal</span>
@@ -181,7 +188,8 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
                       </span>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -192,20 +200,25 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
               <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
                 Feina deixada pels docents absents
               </h2>
-              {subsInicials
-                .filter(s => s.feina_substitut)
-                .map((s: any) => (
-                  <div key={s.id} className="text-sm">
-                    <p className="font-medium" style={{ color: 'var(--color-text)' }}>
-                      {s.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{s.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
-                      {' · '}{s.horari_setmanal?.grup?.nom}
-                      {' · '}{s.absencia?.docent?.nom}
-                    </p>
-                    <p className="mt-0.5 italic" style={{ color: 'var(--color-text-secondary)' }}>
-                      {s.feina_substitut}
-                    </p>
-                  </div>
-                ))}
+              {blocs
+                .filter(b => b.files.some((f: any) => f.feina_substitut))
+                .map((b) => {
+                  const s: any = b.primera
+                  const feina = Array.from(new Set(b.files.map((f: any) => f.feina_substitut).filter(Boolean))).join(' / ')
+                  return (
+                    <div key={s.id} className="text-sm">
+                      <p className="font-medium" style={{ color: 'var(--color-text)' }}>
+                        {textHoraBloc(b)}
+                        {' · '}{s.horari_setmanal?.grup?.nom}
+                        {s.horari_setmanal?.materia && ` · ${s.horari_setmanal.materia}`}
+                        {' · '}{s.absencia?.docent?.nom}
+                      </p>
+                      <p className="mt-0.5 italic" style={{ color: 'var(--color-text-secondary)', whiteSpace: 'pre-line' }}>
+                        {feina}
+                      </p>
+                    </div>
+                  )
+                })}
             </div>
           )}
         </div>

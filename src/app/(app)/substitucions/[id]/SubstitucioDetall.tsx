@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { confirmarSubstitucio, actualitzarFeinaSubstitut, marcarSenseSubstitucio } from '@/lib/actions/substitucions'
+import { confirmarBloc, actualitzarFeinaSubstitut, marcarSenseSubstitucio } from '@/lib/actions/substitucions'
 
 const MOTIUS: Record<string, string> = {
   medic: 'Mèdic',
@@ -34,19 +34,41 @@ function formatDataHora(iso: string): string {
   })
 }
 
+export type BlocInfo = {
+  ids: string[]
+  franges: { id: string; horaInici: string; horaFi: string; substitutId: string | null }[]
+  horaInici: string
+  horaFi: string
+  feina: string
+  substituts: string[]
+}
+
+export type DocentOpcio = {
+  id: string
+  nom: string
+  /** Té guàrdia/permanència/HNL a totes les franges i és de l'etapa */
+  prioritari: boolean
+  /** Per franja: què fa i si no pot substituir (sortida o altra substitució) */
+  franges: Record<string, { text: string; bloquejat: boolean; avis: boolean }>
+}
+
 interface Props {
   substitucio: any
-  candidats: any[]
-  altres: { id: string; nom: string; ocupacio: string; ocupat: boolean }[]
+  bloc: BlocInfo
+  docents: DocentOpcio[]
   docentActualId: string
   esGestor: boolean
   esDocentAbsent: boolean
 }
 
+function hora(h: string) {
+  return h.slice(0, 5)
+}
+
 export default function SubstitucioDetall({
   substitucio,
-  candidats,
-  altres,
+  bloc,
+  docents,
   docentActualId,
   esGestor,
   esDocentAbsent,
@@ -56,28 +78,39 @@ export default function SubstitucioDetall({
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [substitutSeleccionat, setSubstitutSeleccionat] = useState<string>(
-    substitucio.substitut_id ?? ''
+    bloc.franges[0]?.substitutId ?? ''
   )
-  const [mostrarAltres, setMostrarAltres] = useState(
-    !!substitucio.substitut_id && altres.some(a => a.id === substitucio.substitut_id)
+  const [dividir, setDividir] = useState(false)
+  const [perFranja, setPerFranja] = useState<Record<string, string>>(
+    Object.fromEntries(bloc.franges.map(f => [f.id, f.substitutId ?? '']))
   )
+  const [mostrarAltres, setMostrarAltres] = useState(false)
   const [cerca, setCerca] = useState('')
-  const [feina, setFeina] = useState(substitucio.feina_substitut ?? '')
+  const [feina, setFeina] = useState(bloc.feina)
   const [editantFeina, setEditantFeina] = useState(false)
-  const [feinaDraft, setFeinaDraft] = useState(substitucio.feina_substitut ?? '')
+  const [feinaDraft, setFeinaDraft] = useState(bloc.feina)
 
-  const esSubs = substitucio.substitut?.id === docentActualId
+  const esSubs = substitucio.substitut?.id === docentActualId || bloc.franges.some(f => f.substitutId === docentActualId)
+
+  const opcioDocent = (d: DocentOpcio) => {
+    const franges = Object.values(d.franges)
+    const bloquejat = franges.some(f => f.bloquejat)
+    const avis = franges.some(f => f.avis)
+    const text = Array.from(new Set(franges.map(f => f.text))).join(' · ')
+    return { bloquejat, avis, text }
+  }
+
+  const assignacions = bloc.franges.map(f => ({
+    substitucioId: f.id,
+    substitutId: dividir ? perFranja[f.id] : substitutSeleccionat,
+  }))
+  const potConfirmar = assignacions.every(a => !!a.substitutId)
 
   const handleConfirmar = async () => {
-    if (!substitutSeleccionat) return
+    if (!potConfirmar) return
     setLoading(true)
     setErrorMsg('')
-    const result = await confirmarSubstitucio({
-      substitucioId: substitucio.id,
-      substitutId: substitutSeleccionat,
-      feinaSubstitut: feina || undefined,
-      docentGestorId: docentActualId,
-    })
+    const result = await confirmarBloc({ assignacions, feinaSubstitut: feina || undefined })
     if (!result.ok) {
       setErrorMsg(result.error ?? 'Error inesperat')
       setLoading(false)
@@ -90,7 +123,7 @@ export default function SubstitucioDetall({
   const handleSenseSubstitucio = async () => {
     setLoading(true)
     setErrorMsg('')
-    const result = await marcarSenseSubstitucio(substitucio.id, docentActualId)
+    const result = await marcarSenseSubstitucio(bloc.ids)
     if (!result.ok) {
       setErrorMsg(result.error ?? 'Error inesperat')
       setLoading(false)
@@ -104,7 +137,7 @@ export default function SubstitucioDetall({
     setLoading(true)
     setErrorMsg('')
     const result = await actualitzarFeinaSubstitut({
-      substitucioId: substitucio.id,
+      substitucioIds: bloc.ids,
       feina: feinaDraft,
       docentAbsentId: docentActualId,
     })
@@ -134,6 +167,11 @@ export default function SubstitucioDetall({
             <h1 className="text-lg font-semibold" style={{ color: 'var(--color-primary)' }}>
               {substitucio.absencia?.docent?.nom ?? 'Substitució'}
             </h1>
+            {(substitucio.horari_setmanal?.materia || substitucio.horari_setmanal?.grup?.nom) && (
+              <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--color-text)' }}>
+                {[substitucio.horari_setmanal?.materia, substitucio.horari_setmanal?.grup?.nom].filter(Boolean).join(' · ')}
+              </p>
+            )}
             <p className="text-sm mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
               {new Date(substitucio.data).toLocaleDateString('ca-ES', {
                 weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
@@ -149,8 +187,7 @@ export default function SubstitucioDetall({
           <div className="flex justify-between">
             <dt style={{ color: 'var(--color-text-secondary)' }}>Franja</dt>
             <dd className="font-medium">
-              {substitucio.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–
-              {substitucio.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
+              {hora(bloc.horaInici)}–{hora(bloc.horaFi)}
             </dd>
           </div>
           <div className="flex justify-between">
@@ -268,47 +305,38 @@ export default function SubstitucioDetall({
           <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
             Assignar substitut/a
           </h2>
-
-          {candidats.length > 0 ? (
-            <>
-              <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                Candidats disponibles en aquesta franja:
-              </p>
-              <div className="space-y-2">
-                {candidats.map((c: any) => (
-                  <button
-                    key={c.docent_id}
-                    type="button"
-                    onClick={() => setSubstitutSeleccionat(c.docent_id)}
-                    className="w-full flex items-center justify-between px-4 py-3 rounded-lg border text-sm transition-colors"
-                    style={{
-                      borderColor:
-                        substitutSeleccionat === c.docent_id
-                          ? 'var(--color-primary)'
-                          : 'var(--color-border)',
-                      backgroundColor:
-                        substitutSeleccionat === c.docent_id
-                          ? 'var(--color-primary-light)'
-                          : 'white',
-                      color: 'var(--color-text)',
-                    }}
-                  >
-                    <span className="font-medium">{c.docent?.nom}</span>
-                    <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                      {TIPUS_HORARI[c.tipus] ?? c.tipus}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              No hi ha candidats prioritaris disponibles en aquesta franja.
+          {bloc.franges.length > 1 && (
+            <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+              Aquesta classe ocupa {bloc.franges.length} franges seguides ({hora(bloc.horaInici)}–{hora(bloc.horaFi)}).
+              Per defecte les cobreix una sola persona.
             </p>
           )}
 
-          {altres.length > 0 && (
-            <div className="space-y-2">
+          {!dividir ? (
+            <div className="space-y-3">
+              {docents.some(d => d.prioritari) ? (
+                <>
+                  <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    Candidats disponibles{bloc.franges.length > 1 ? ' tot el bloc' : ' en aquesta franja'}:
+                  </p>
+                  <div className="space-y-2">
+                    {docents.filter(d => d.prioritari).map(d => (
+                      <BotoDocent
+                        key={d.id}
+                        nom={d.nom}
+                        text={opcioDocent(d).text}
+                        seleccionat={substitutSeleccionat === d.id}
+                        onClick={() => setSubstitutSeleccionat(d.id)}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                  No hi ha candidats prioritaris disponibles{bloc.franges.length > 1 ? ' durant tot el bloc' : ' en aquesta franja'}.
+                </p>
+              )}
+
               <button
                 type="button"
                 onClick={() => setMostrarAltres(v => !v)}
@@ -326,36 +354,73 @@ export default function SubstitucioDetall({
                     placeholder="Cerca per nom..."
                   />
                   <div className="space-y-2 max-h-72 overflow-y-auto">
-                    {altres
-                      .filter(a => a.nom.toLowerCase().includes(cerca.toLowerCase()))
-                      .map(a => (
-                        <button
-                          key={a.id}
-                          type="button"
-                          onClick={() => setSubstitutSeleccionat(a.id)}
-                          className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-lg border text-sm transition-colors"
-                          style={{
-                            borderColor: substitutSeleccionat === a.id ? 'var(--color-primary)' : 'var(--color-border)',
-                            backgroundColor: substitutSeleccionat === a.id ? 'var(--color-primary-light)' : 'white',
-                            color: 'var(--color-text)',
-                          }}
-                        >
-                          <span className="font-medium text-left">{a.nom}</span>
-                          <span
-                            className="text-xs text-right"
-                            style={{ color: a.ocupat ? '#991B1B' : 'var(--color-text-secondary)' }}
-                          >
-                            {a.ocupacio}
-                          </span>
-                        </button>
-                      ))}
+                    {docents
+                      .filter(d => !d.prioritari && d.nom.toLowerCase().includes(cerca.toLowerCase()))
+                      .sort((a, b) => Number(opcioDocent(a).bloquejat) - Number(opcioDocent(b).bloquejat))
+                      .map(d => {
+                        const o = opcioDocent(d)
+                        return (
+                          <BotoDocent
+                            key={d.id}
+                            nom={d.nom}
+                            text={o.text}
+                            avis={o.avis}
+                            bloquejat={o.bloquejat}
+                            seleccionat={substitutSeleccionat === d.id}
+                            onClick={() => setSubstitutSeleccionat(d.id)}
+                          />
+                        )
+                      })}
                   </div>
                   <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                    En vermell, docents que en aquesta franja ja tenen classe, reunió o una altra substitució.
+                    En vermell, docents que tenen classe o reunió. Els que són de sortida o ja substitueixen algú
+                    en aquest tram no es poden triar.
                   </p>
                 </>
               )}
             </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                Tria qui cobreix cada franja:
+              </p>
+              {bloc.franges.map(f => (
+                <div key={f.id} className="space-y-1">
+                  <label className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>
+                    {hora(f.horaInici)}–{hora(f.horaFi)}
+                  </label>
+                  <select
+                    value={perFranja[f.id] ?? ''}
+                    onChange={(e) => setPerFranja(p => ({ ...p, [f.id]: e.target.value }))}
+                  >
+                    <option value="">— Tria un docent —</option>
+                    {[...docents]
+                      .sort((a, b) =>
+                        Number(!!a.franges[f.id]?.bloquejat) - Number(!!b.franges[f.id]?.bloquejat)
+                        || a.nom.localeCompare(b.nom))
+                      .map(d => {
+                        const info = d.franges[f.id]
+                        return (
+                          <option key={d.id} value={d.id} disabled={info?.bloquejat}>
+                            {d.nom} — {info?.text}
+                          </option>
+                        )
+                      })}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {bloc.franges.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setDividir(v => !v)}
+              className="text-sm font-medium block"
+              style={{ color: 'var(--color-accent)' }}
+            >
+              {dividir ? '← Una sola persona per a tot el bloc' : 'Dividir entre diverses persones'}
+            </button>
           )}
 
           {errorMsg && (
@@ -369,7 +434,7 @@ export default function SubstitucioDetall({
 
           <button
             onClick={handleConfirmar}
-            disabled={!substitutSeleccionat || loading}
+            disabled={!potConfirmar || loading}
             className="btn-primary w-full"
           >
             {loading ? 'Confirmant...' : 'Confirmar substitució'}
@@ -381,7 +446,7 @@ export default function SubstitucioDetall({
             className="text-sm font-medium w-full text-center"
             style={{ color: 'var(--color-text-secondary)' }}
           >
-            No cal substitut/a per a aquesta franja
+            No cal substitut/a per a aquesta {bloc.franges.length > 1 ? 'classe' : 'franja'}
           </button>
         </div>
       )}
@@ -400,13 +465,13 @@ export default function SubstitucioDetall({
       )}
 
       {/* Substitut confirmat */}
-      {substitucio.estat === 'confirmada' && substitucio.substitut && (
+      {substitucio.estat === 'confirmada' && bloc.substituts.length > 0 && (
         <div className="card">
           <h2 className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
             Substitut/a confirmat/da
           </h2>
           <p className="font-medium" style={{ color: 'var(--color-success)' }}>
-            {substitucio.substitut.nom}
+            {bloc.substituts.join(' · ')}
           </p>
           {substitucio.confirmador && (
             <p className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
@@ -436,5 +501,40 @@ export default function SubstitucioDetall({
         </div>
       )}
     </div>
+  )
+}
+
+function BotoDocent({
+  nom, text, seleccionat, onClick, avis = false, bloquejat = false,
+}: {
+  nom: string
+  text: string
+  seleccionat: boolean
+  onClick: () => void
+  avis?: boolean
+  bloquejat?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={bloquejat}
+      className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-lg border text-sm transition-colors"
+      style={{
+        borderColor: seleccionat ? 'var(--color-primary)' : 'var(--color-border)',
+        backgroundColor: bloquejat ? '#F3F4F6' : seleccionat ? 'var(--color-primary-light)' : 'white',
+        color: 'var(--color-text)',
+        opacity: bloquejat ? 0.75 : 1,
+        cursor: bloquejat ? 'not-allowed' : 'pointer',
+      }}
+    >
+      <span className="font-medium text-left">{nom}</span>
+      <span
+        className="text-xs text-right"
+        style={{ color: bloquejat || avis ? '#991B1B' : 'var(--color-text-secondary)' }}
+      >
+        {text}
+      </span>
+    </button>
   )
 }

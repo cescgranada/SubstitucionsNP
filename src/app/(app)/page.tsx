@@ -1,3 +1,4 @@
+import { agruparBlocs, textHoraBloc } from '@/lib/substitucions-blocs'
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { esEquipDirectiu } from '@/lib/roles'
@@ -32,7 +33,7 @@ export default async function HomePage() {
   const { data: substitucionsProximes } = await supabase
     .from('substitucions')
     .select(`
-      id, data, estat, feina_substitut,
+      id, data, estat, feina_substitut, absencia_id, sortida_id, substitut_id,
       horari_setmanal:horari_setmanal_id (
         tipus, materia, aula,
         franja:franja_id ( hora_inici, hora_fi ),
@@ -70,9 +71,9 @@ export default async function HomePage() {
     ? await supabase
         .from('substitucions')
         .select(`
-          id, data, estat,
+          id, data, estat, absencia_id, sortida_id, substitut_id,
           horari_setmanal:horari_setmanal_id (
-            materia,
+            tipus, materia,
             franja:franja_id ( hora_inici, hora_fi ),
             grup:grup_id ( nom )
           ),
@@ -85,6 +86,9 @@ export default async function HomePage() {
         .order('data', { ascending: true })
         .limit(5)
     : { data: null }
+
+  const blocsProximes = agruparBlocs((substitucionsProximes ?? []) as any[])
+  const blocsPendents = agruparBlocs((subsPendents ?? []) as any[])
 
   const nomCurt = docent.nom.split(' ')[0]
 
@@ -159,13 +163,15 @@ export default async function HomePage() {
       </div>
 
       {/* Substitucions properes com a substitut */}
-      {substitucionsProximes && substitucionsProximes.length > 0 && (
+      {blocsProximes.length > 0 && (
         <section>
           <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--color-text)' }}>
             Les meves properes substitucions
           </h2>
           <div className="space-y-2">
-            {substitucionsProximes.map((s: any) => (
+            {blocsProximes.map((b) => {
+              const s: any = b.primera
+              return (
               <div key={s.id} className="card flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -173,11 +179,12 @@ export default async function HomePage() {
                       {new Date(s.data).toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
                     </span>
                     <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                      {s.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{s.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
+                      {textHoraBloc(b)}
                     </span>
                   </div>
                   <p className="text-sm mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                    {s.absencia?.docent?.nom} · {s.horari_setmanal?.grup?.nom ?? s.horari_setmanal?.materia ?? '—'}
+                    {[s.horari_setmanal?.materia, s.horari_setmanal?.grup?.nom].filter(Boolean).join(' · ') || '—'}
+                    {s.absencia?.docent?.nom && ` · Supleix ${s.absencia.docent.nom}`}
                   </p>
                   {s.feina_substitut && (
                     <p className="text-xs mt-1 italic" style={{ color: 'var(--color-text-secondary)' }}>
@@ -187,7 +194,8 @@ export default async function HomePage() {
                 </div>
                 <BadgeEstat estat={s.estat} />
               </div>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}
@@ -224,25 +232,28 @@ export default async function HomePage() {
       )}
 
       {/* Substitucions pendents de confirmar (gestors) */}
-      {esGestor && subsPendents && subsPendents.length > 0 && (
+      {esGestor && blocsPendents.length > 0 && (
         <section>
           <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--color-text)' }}>
             Substitucions per confirmar
           </h2>
           <div className="space-y-2">
-            {subsPendents.map((s: any) => (
+            {blocsPendents.map((b) => {
+              const s: any = b.primera
+              return (
               <Link key={s.id} href={`/substitucions/${s.id}`} className="card flex items-start justify-between gap-3 hover:shadow-md transition-shadow" style={{ textDecoration: 'none' }}>
                 <div className="min-w-0">
                   <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                    {s.absencia?.docent?.nom}
+                    {s.horari_setmanal?.materia ? `${s.horari_setmanal.materia} · ` : ''}{s.absencia?.docent?.nom}
                   </p>
                   <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                    {new Date(s.data).toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' })} · {s.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{s.horari_setmanal?.franja?.hora_fi?.slice(0, 5)} · {s.horari_setmanal?.grup?.nom ?? s.horari_setmanal?.materia}
+                    {new Date(s.data).toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' })} · {textHoraBloc(b)}{s.horari_setmanal?.grup?.nom && ` · ${s.horari_setmanal.grup.nom}`}
                   </p>
                 </div>
                 <BadgeEstat estat={s.estat} />
               </Link>
-            ))}
+              )
+            })}
           </div>
           <Link
             href="/substitucions"

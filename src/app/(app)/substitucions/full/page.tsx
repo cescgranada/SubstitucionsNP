@@ -34,7 +34,7 @@ export default async function FullSubstitucionsPage({
   const { data: substitucions } = await supabase
     .from('substitucions')
     .select(`
-      id, estat, feina_substitut,
+      id, data, estat, feina_substitut, absencia_id, sortida_id, substitut_id,
       substitut:substitut_id(nom),
       confirmador:confirmat_per(nom),
       horari_setmanal:horari_setmanal_id(
