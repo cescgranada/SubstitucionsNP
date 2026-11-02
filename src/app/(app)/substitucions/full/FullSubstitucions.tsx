@@ -2,13 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { agruparBlocs, textHoraBloc } from '@/lib/substitucions-blocs'
-
-const MOTIUS: Record<string, string> = {
-  medic: 'Mèdic',
-  dia_personal: 'Dia personal',
-  formacio: 'Formació',
-}
+import { agruparBlocs, textHoraBloc, nomAbsent } from '@/lib/substitucions-blocs'
+import { MOTIUS } from '@/lib/etiquetes'
 
 interface Props {
   data: string
@@ -34,7 +29,7 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
 
   // Agrupa per docent absent
   const perDocentAbsent = subsInicials.reduce((acc: Record<string, any>, s: any) => {
-    const nom = s.absencia?.docent?.nom ?? '—'
+    const nom = nomAbsent(s) ?? '—'
     if (!acc[nom]) acc[nom] = { motiu: s.absencia?.motiu, subs: [] }
     acc[nom].subs.push(s)
     return acc
@@ -163,10 +158,10 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
                       {s.horari_setmanal?.aula ?? '—'}
                     </td>
                     <td style={{ padding: '10px 12px', color: 'var(--color-text)', fontWeight: 500 }}>
-                      {s.absencia?.docent?.nom ?? '—'}
+                      {nomAbsent(s) ?? '—'}
                     </td>
                     <td style={{ padding: '10px 12px', color: 'var(--color-text-secondary)' }}>
-                      {MOTIUS[s.absencia?.motiu] ?? '—'}
+                      {s.sortida_id ? `Sortida${s.sortida?.descripcio ? ': ' + s.sortida.descripcio : ''}` : MOTIUS[s.absencia?.motiu] ?? '—'}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
                       {substituts.length > 0 ? (
@@ -211,7 +206,7 @@ export default function FullSubstitucions({ data: dataInicial, substitucions: su
                         {textHoraBloc(b)}
                         {' · '}{s.horari_setmanal?.grup?.nom}
                         {s.horari_setmanal?.materia && ` · ${s.horari_setmanal.materia}`}
-                        {' · '}{s.absencia?.docent?.nom}
+                        {' · '}{nomAbsent(s)}
                       </p>
                       <p className="mt-0.5 italic" style={{ color: 'var(--color-text-secondary)', whiteSpace: 'pre-line' }}>
                         {feina}

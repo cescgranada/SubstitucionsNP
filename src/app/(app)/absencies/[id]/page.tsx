@@ -41,7 +41,7 @@ export default async function AbsenciaPage({ params }: { params: Promise<{ id: s
   const { data: substitucions } = await supabase
     .from('substitucions')
     .select(`
-      id, data, estat, feina_substitut, motiu_proposta_ia,
+      id, data, estat, feina_substitut, motiu_proposta_ia, absencia_id, substitut_id,
       substitut:substitut_id(nom),
       horari_setmanal:horari_setmanal_id(
         tipus, materia,

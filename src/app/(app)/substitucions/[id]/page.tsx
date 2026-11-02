@@ -4,11 +4,8 @@ import SubstitucioDetall, { type BlocInfo, type DocentOpcio } from './Substituci
 import { esEquipDirectiu } from '@/lib/roles'
 import { agruparBlocs } from '@/lib/substitucions-blocs'
 import { docentsOcupats } from '@/lib/ocupacio'
+import { TIPUS_HORARI as TEXT_TIPUS } from '@/lib/etiquetes'
 
-const TEXT_TIPUS: Record<string, string> = {
-  classe: 'Té classe', guardia: 'Guàrdia', permanencia: 'Permanència', reunio: 'Reunió',
-  esbarjo: 'Esbarjo', hnl: 'Hora no lectiva', disponible: 'Disponible',
-}
 const TIPUS_PRIORITARIS = ['guardia', 'permanencia', 'hnl', 'disponible']
 
 export default async function SubstitucioPage({ params }: { params: Promise<{ id: string }> }) {
@@ -31,6 +28,7 @@ export default async function SubstitucioPage({ params }: { params: Promise<{ id
       substitut:substitut_id(id, nom, email),
       confirmador:confirmat_per(nom),
       horari_setmanal:horari_setmanal_id(
+        docent:docent_id(nom),
         tipus, materia, aula, tipus_parella,
         franja:franja_id(id, hora_inici, hora_fi),
         grup:grup_id(nom),
@@ -69,6 +67,7 @@ export default async function SubstitucioPage({ params }: { params: Promise<{ id
         id, data, estat, substitut_id, absencia_id, sortida_id, feina_substitut,
         substitut:substitut_id(id, nom),
         horari_setmanal:horari_setmanal_id(
+          docent:docent_id(nom),
           tipus, materia,
           franja:franja_id(id, hora_inici, hora_fi),
           grup:grup_id(nom)
@@ -100,9 +99,9 @@ export default async function SubstitucioPage({ params }: { params: Promise<{ id
     ).values()) as string[],
   }
 
-  // Docents entre els quals triar (només l'equip directiu, mentre s'està decidint)
+  // Docents entre els quals triar (només l'equip directiu; es pot canviar fins i tot un cop confirmada)
   let docents: DocentOpcio[] = []
-  if (esGestor && ['pendent', 'proposta_ia'].includes(substitucio.estat)) {
+  if (esGestor && substitucio.estat !== 'eliminada') {
     const diaNum = new Date(substitucio.data + 'T12:00:00').getDay()
     const absentId = substitucio.absencia?.docent?.id ?? ''
 

@@ -2,14 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { agruparBlocs, textHoraBloc } from '@/lib/substitucions-blocs'
-
-const TEXT_ESTAT: Record<string, string> = {
-  pendent: 'Pendent',
-  proposta_ia: 'Proposta',
-  confirmada: 'Confirmada',
-  no_cal: 'No cal',
-}
+import { agruparBlocs, textHoraBloc, nomAbsent } from '@/lib/substitucions-blocs'
+import { ESTAT_SUBSTITUCIO as TEXT_ESTAT } from '@/lib/etiquetes'
 
 interface Props {
   comsubs: any[]
@@ -71,7 +65,7 @@ export default function SubstitucionsPersonals({ comsubs, generades, avui }: Pro
                     </p>
                     <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
                       {textHoraBloc(b)}
-                      {s.absencia?.docent?.nom && ` · Supleix ${s.absencia.docent.nom}`}
+                      {nomAbsent(s) && ` · Supleix ${nomAbsent(s)}`}
                     </p>
                     {(s.horari_setmanal?.grup?.nom || s.horari_setmanal?.materia) && (
                       <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>

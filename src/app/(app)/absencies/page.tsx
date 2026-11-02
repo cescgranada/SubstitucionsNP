@@ -1,12 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { esEquipDirectiu } from '@/lib/roles'
-
-const MOTIUS: Record<string, string> = {
-  medic: 'Mèdic',
-  dia_personal: 'Dia personal',
-  formacio: 'Formació',
-}
+import { MOTIUS, ESTAT_ABSENCIA as TEXT_ESTAT } from '@/lib/etiquetes'
 
 const BADGE_ESTAT: Record<string, string> = {
   pendent: 'badge-pendent',
@@ -14,14 +9,6 @@ const BADGE_ESTAT: Record<string, string> = {
   rebutjada: 'badge-rebutjada',
   'cancel·lada': 'badge-cancel-lada',
   eliminada: 'badge-eliminada',
-}
-
-const TEXT_ESTAT: Record<string, string> = {
-  pendent: 'Pendent',
-  aprovada: 'Aprovada',
-  rebutjada: 'Rebutjada',
-  'cancel·lada': 'Cancel·lada',
-  eliminada: 'Eliminada',
 }
 
 function formatData(data: string, dataFi: string | null): string {

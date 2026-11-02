@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { actualitzarEstatSortida, eliminarSortida, marcarGestioSortida, desarAcompanyants } from '@/lib/actions/sortides'
+import { ESTAT_SORTIDA as TEXT_ESTAT } from '@/lib/etiquetes'
 
 interface Props {
   sortida: any
@@ -118,13 +119,6 @@ export default function SortidaDetall({ sortida, docentActualId, esGestor, esPro
   })
 
   const estatBadge = sortida.estat === 'proposta' ? 'pendent' : sortida.estat
-
-  const TEXT_ESTAT: Record<string, string> = {
-    proposta: 'Proposta',
-    aprovada: 'Aprovada',
-    rebutjada: 'Rebutjada',
-    eliminada: 'Eliminada',
-  }
 
   return (
     <div className="max-w-lg space-y-5">

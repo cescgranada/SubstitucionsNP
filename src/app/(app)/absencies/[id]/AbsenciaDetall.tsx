@@ -3,12 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { actualitzarEstatAbsencia, cancellarAbsencia, eliminarAbsencia } from '@/lib/actions/generar-substitucions'
-
-const MOTIUS: Record<string, string> = {
-  medic: 'Mèdic',
-  dia_personal: 'Dia personal',
-  formacio: 'Formació',
-}
+import { agruparBlocs, textHoraBloc } from '@/lib/substitucions-blocs'
+import { MOTIUS, ESTAT_ABSENCIA as TEXT_ESTAT, ESTAT_SUBSTITUCIO } from '@/lib/etiquetes'
 
 const BADGE_ESTAT: Record<string, string> = {
   pendent: 'badge-pendent',
@@ -16,14 +12,6 @@ const BADGE_ESTAT: Record<string, string> = {
   rebutjada: 'badge-rebutjada',
   'cancel·lada': 'badge-cancel-lada',
   eliminada: 'badge-eliminada',
-}
-
-const TEXT_ESTAT: Record<string, string> = {
-  pendent: 'Pendent',
-  aprovada: 'Aprovada',
-  rebutjada: 'Rebutjada',
-  'cancel·lada': 'Cancel·lada',
-  eliminada: 'Eliminada',
 }
 
 function formatDataHora(iso: string): string {
@@ -119,10 +107,13 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
     setConfirmantEliminar(false)
   }
 
-  // Agrupa substitucions per data si és multi-dia
+  // Les franges seguides de la mateixa classe es mostren com un sol bloc
+  const blocs = agruparBlocs(substitucions)
+
+  // Agrupa els blocs per data si és multi-dia
   const substitucionsPerDia = esMultiDia
-    ? substitucions.reduce((acc: Record<string, any[]>, s: any) => {
-        const d = s.data ?? absencia.data
+    ? blocs.reduce((acc: Record<string, any[]>, s: any) => {
+        const d = s.primera.data ?? absencia.data
         if (!acc[d]) acc[d] = []
         acc[d].push(s)
         return acc
@@ -255,8 +246,8 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
             style={{ borderColor: 'var(--color-border)' }}
           >
             <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              {substitucions.length > 0
-                ? `Es cancel·laran ${substitucions.length} substitució${substitucions.length !== 1 ? 'ns' : ''} associada${substitucions.length !== 1 ? 'des' : ''} i els substituts seran notificats.`
+              {blocs.length > 0
+                ? `Es cancel·laran ${blocs.length} substitució${blocs.length !== 1 ? 'ns' : ''} associada${blocs.length !== 1 ? 'des' : ''} i els substituts seran notificats.`
                 : "Segur que vols cancel·lar aquesta absència?"}
             </p>
             <div className="flex gap-3">
@@ -306,7 +297,7 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
             <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               Aquesta absència quedarà marcada com a eliminada (amb el teu nom i la data) i deixarà
               de comptar, però quedarà consultable a l&apos;historial.
-              {substitucions.length > 0 && ` Es descartaran ${substitucions.length} substitució${substitucions.length !== 1 ? 'ns' : ''} associada${substitucions.length !== 1 ? 'des' : ''}.`}
+              {blocs.length > 0 && ` Es descartaran ${blocs.length} substitució${blocs.length !== 1 ? 'ns' : ''} associada${blocs.length !== 1 ? 'des' : ''}.`}
             </p>
             <div className="flex gap-3">
               <button
@@ -341,7 +332,7 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
       {esMultiDia && substitucionsPerDia && Object.keys(substitucionsPerDia).length > 0 && (
         <section>
           <h2 className="text-sm font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-            Classes afectades ({substitucions.length})
+            Classes afectades ({blocs.length})
           </h2>
           <div className="space-y-4">
             {Object.entries(substitucionsPerDia).sort().map(([dia, subs]: [string, any[]]) => (
@@ -350,8 +341,8 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
                   {formatDataCurt(dia)}
                 </p>
                 <div className="space-y-2">
-                  {subs.map((s: any) => (
-                    <SubstitucioItem key={s.id} s={s} />
+                  {subs.map((b: any) => (
+                    <SubstitucioItem key={b.primera.id} b={b} />
                   ))}
                 </div>
               </div>
@@ -364,11 +355,11 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
       {!esMultiDia && substitucions.length > 0 && (
         <section>
           <h2 className="text-sm font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-            Classes afectades ({substitucions.length})
+            Classes afectades ({blocs.length})
           </h2>
           <div className="space-y-2">
-            {substitucions.map((s: any) => (
-              <SubstitucioItem key={s.id} s={s} />
+            {blocs.map((b) => (
+              <SubstitucioItem key={b.primera.id} b={b} />
             ))}
           </div>
         </section>
@@ -387,7 +378,9 @@ export default function AbsenciaDetall({ absencia, substitucions, docentActualId
   )
 }
 
-function SubstitucioItem({ s }: { s: any }) {
+function SubstitucioItem({ b }: { b: ReturnType<typeof agruparBlocs<any>>[number] }) {
+  const s: any = b.primera
+  const noms = Array.from(new Set(b.files.map((f: any) => f.substitut?.nom).filter(Boolean)))
   return (
     <a
       href={`/substitucions/${s.id}`}
@@ -396,7 +389,7 @@ function SubstitucioItem({ s }: { s: any }) {
     >
       <div>
         <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-          {s.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{s.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
+          {textHoraBloc(b)}
           {s.horari_setmanal?.grup?.nom && ` · ${s.horari_setmanal.grup.nom}`}
           {s.horari_setmanal?.materia && ` · ${s.horari_setmanal.materia}`}
         </p>
@@ -405,10 +398,10 @@ function SubstitucioItem({ s }: { s: any }) {
             {s.motiu_proposta_ia}
           </p>
         )}
-        {s.substitut ? (
+        {noms.length > 0 ? (
           <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
             {s.estat === 'confirmada' ? 'Substitut/a: ' : 'Proposat/da: '}
-            <strong>{s.substitut.nom}</strong>
+            <strong>{noms.join(' / ')}</strong>
           </p>
         ) : s.estat === 'no_cal' ? (
           <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
@@ -421,11 +414,7 @@ function SubstitucioItem({ s }: { s: any }) {
         )}
       </div>
       <span className={`badge badge-${s.estat} flex-shrink-0`}>
-        {s.estat === 'pendent' ? 'Pendent'
-          : s.estat === 'proposta_ia' ? 'Proposta'
-          : s.estat === 'eliminada' ? 'Eliminada'
-          : s.estat === 'no_cal' ? 'No cal'
-          : 'Confirmada'}
+        {ESTAT_SUBSTITUCIO[s.estat] ?? s.estat}
       </span>
     </a>
   )

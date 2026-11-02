@@ -57,18 +57,16 @@ export default async function HorariPage({
   const { data: rols } = await supabase.from('docent_rols').select('rol').eq('docent_id', docent.id)
   const esGestor = esEquipDirectiu(rols)
 
-  let docentsLlista: { id: string; nom: string }[] = []
-  let docentVist: { id: string; nom: string } = docent
-  if (esGestor) {
-    const [{ data: tots }, { data: rolsPas }] = await Promise.all([
-      supabase.from('docents').select('id, nom').eq('actiu', true).order('nom'),
-      supabase.from('docent_rols').select('docent_id').eq('rol', 'pas'),
-    ])
-    const idsPas = new Set((rolsPas ?? []).map((r: any) => r.docent_id))
-    docentsLlista = (tots ?? []).filter((d: any) => !idsPas.has(d.id))
-    const triat = docentsLlista.find(d => d.id === docentParam)
-    if (triat) docentVist = triat
-  }
+  // Les dades de l'horari són visibles per a tothom (fitxa de Personal): qualsevol
+  // docent pot arribar-hi per enllaç, però el desplegable és de l'equip directiu.
+  const [{ data: tots }, { data: rolsPas }] = await Promise.all([
+    supabase.from('docents').select('id, nom').eq('actiu', true).order('nom'),
+    supabase.from('docent_rols').select('docent_id').eq('rol', 'pas'),
+  ])
+  const idsPas = new Set((rolsPas ?? []).map((r: any) => r.docent_id))
+  const docentsLlista: { id: string; nom: string }[] = (tots ?? []).filter((d: any) => !idsPas.has(d.id))
+  const triat = docentsLlista.find(d => d.id === docentParam)
+  const docentVist: { id: string; nom: string } = triat ?? docent
   const veigAltre = docentVist.id !== docent.id
 
   const { data: horariRaw } = await supabase

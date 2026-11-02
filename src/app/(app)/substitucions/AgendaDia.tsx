@@ -2,17 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { agruparBlocs, textHoraBloc, type Bloc } from '@/lib/substitucions-blocs'
-
-const TIPUS_HORARI: Record<string, string> = {
-  classe: 'Classe',
-  guardia: 'Guàrdia',
-  permanencia: 'Permanència',
-  reunio: 'Reunió',
-  esbarjo: 'Esbarjo',
-  hnl: 'HNL',
-  disponible: 'Disponible',
-}
+import { agruparBlocs, textHoraBloc, type Bloc, nomAbsent } from '@/lib/substitucions-blocs'
+import { TIPUS_HORARI } from '@/lib/etiquetes'
 
 interface Substitucio {
   id: string
@@ -22,6 +13,7 @@ interface Substitucio {
   sortida_id?: string | null
   substitut_id?: string | null
   horari_setmanal: {
+    docent?: { nom: string } | null
     tipus: string
     materia: string | null
     franja: { hora_inici: string; hora_fi: string } | null
@@ -124,7 +116,7 @@ function SubstitucioAgendaItem({ b }: { b: Bloc<Substitucio> }) {
           )}
         </div>
         <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-          Substitueix: {s.absencia?.docent?.nom ?? '—'}
+          Substitueix: {nomAbsent(s) ?? '—'}
         </p>
         {substituts.length > 0 ? (
           <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--color-success)' }}>

@@ -4,18 +4,14 @@ import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Modal from '@/components/ui/Modal'
+import { agruparBlocs, textHoraBloc, nomAbsent } from '@/lib/substitucions-blocs'
+import { MOTIUS } from '@/lib/etiquetes'
 
 const DIES_SETMANA = ['Dl', 'Dt', 'Dc', 'Dj', 'Dv', 'Ds', 'Dg']
 const NOMS_MESOS = [
   'Gener', 'Febrer', 'Març', 'Abril', 'Maig', 'Juny',
   'Juliol', 'Agost', 'Setembre', 'Octubre', 'Novembre', 'Desembre',
 ]
-const MOTIUS: Record<string, string> = {
-  medic: 'Mèdic',
-  dia_personal: 'Dia personal',
-  formacio: 'Formació',
-}
-
 interface Props {
   any: number
   mes: number
@@ -126,6 +122,8 @@ export default function CalendariUnificat({
       if (!m.has(s.data)) m.set(s.data, [])
       m.get(s.data)!.push(s)
     }
+    // Les franges seguides de la mateixa classe es mostren com un sol bloc
+    for (const [dia, files] of m) m.set(dia, agruparBlocs(files))
     return m
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [substitucions, etapesPerDocent, etapaFiltre])
@@ -238,7 +236,7 @@ export default function CalendariUnificat({
           const absDia = absenciesPerDia.get(data) ?? []
           const sortDia = sortidesPerDia.get(data) ?? []
           const subsDia = substitucionsPerDia.get(data) ?? []
-          const subsPendents = subsDia.filter((s: any) => s.estat === 'pendent' || s.estat === 'proposta_ia').length
+          const subsPendents = subsDia.filter((b: any) => b.primera.estat === 'pendent' || b.primera.estat === 'proposta_ia').length
           const esAvui = data === avui
           const teContingut = absDia.length + sortDia.length + subsDia.length > 0
           const capItems = 2
@@ -372,7 +370,10 @@ export default function CalendariUnificat({
                   Substitucions ({subsDelDia.length})
                 </h3>
                 <div className="space-y-2">
-                  {subsDelDia.map((s: any) => (
+                  {subsDelDia.map((b: any) => {
+                    const s = b.primera
+                    const noms = Array.from(new Set(b.files.map((f: any) => f.substitut?.nom).filter(Boolean)))
+                    return (
                     <Link
                       key={s.id}
                       href={`/substitucions/${s.id}`}
@@ -380,20 +381,21 @@ export default function CalendariUnificat({
                       style={{ backgroundColor: '#FFF3E0', textDecoration: 'none', color: 'var(--color-text)' }}
                     >
                       <span className="font-medium">
-                        {s.absencia?.docent?.nom ?? 'Sortida'}
+                        {nomAbsent(s) ?? 'Sortida'}
                       </span>
                       <span style={{ color: 'var(--color-text-secondary)' }}>
-                        {' · '}{s.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{s.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
+                        {' · '}{textHoraBloc(b)}
                         {s.horari_setmanal?.grup?.nom && ` · ${s.horari_setmanal.grup.nom}`}
                       </span>
                       <br />
-                      <span className="text-xs" style={{ color: s.substitut?.nom ? 'var(--color-success)' : 'var(--color-warning)' }}>
-                        {s.substitut?.nom
-                          ? (s.estat === 'confirmada' ? `Substitut/a: ${s.substitut.nom}` : `Proposat/da: ${s.substitut.nom}`)
+                      <span className="text-xs" style={{ color: noms.length > 0 ? 'var(--color-success)' : 'var(--color-warning)' }}>
+                        {noms.length > 0
+                          ? (s.estat === 'confirmada' ? `Substitut/a: ${noms.join(' / ')}` : `Proposat/da: ${noms.join(' / ')}`)
                           : s.estat === 'no_cal' ? 'No calia substitut' : 'Sense substitut assignat'}
                       </span>
                     </Link>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
