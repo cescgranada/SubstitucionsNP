@@ -3,6 +3,7 @@ import Link from 'next/link'
 import AgendaDia from './AgendaDia'
 import SubstitucionsPersonals from './SubstitucionsPersonals'
 import { esEquipDirectiu } from '@/lib/roles'
+import { agruparBlocs, textHoraBloc } from '@/lib/substitucions-blocs'
 
 export default async function SubstitucionsPage() {
   const supabase = await createClient()
@@ -32,7 +33,7 @@ export default async function SubstitucionsPage() {
   const { data: comsubs } = await supabase
     .from('substitucions')
     .select(`
-      id, data, estat, feina_substitut,
+      id, data, estat, feina_substitut, absencia_id, sortida_id, substitut_id,
       horari_setmanal:horari_setmanal_id(
         tipus, materia,
         franja:franja_id(hora_inici, hora_fi),
@@ -52,7 +53,7 @@ export default async function SubstitucionsPage() {
     ? await supabase
         .from('substitucions')
         .select(`
-          id, data, estat,
+          id, data, estat, absencia_id, sortida_id, substitut_id,
           substitut:substitut_id(nom),
           horari_setmanal:horari_setmanal_id(
             tipus, materia,
@@ -75,7 +76,7 @@ export default async function SubstitucionsPage() {
     ? await supabase
         .from('substitucions')
         .select(`
-          id, data, estat,
+          id, data, estat, absencia_id, sortida_id, substitut_id,
           substitut:substitut_id(nom),
           horari_setmanal:horari_setmanal_id(
             tipus, materia,
@@ -105,7 +106,7 @@ export default async function SubstitucionsPage() {
     ? await supabase
         .from('substitucions')
         .select(`
-          id, data, estat, substitut_id,
+          id, data, estat, absencia_id, sortida_id, substitut_id,
           substitut:substitut_id(nom),
           horari_setmanal:horari_setmanal_id(
             tipus, materia,
@@ -118,6 +119,8 @@ export default async function SubstitucionsPage() {
         .order('data', { ascending: false })
         .limit(30)
     : { data: [] }
+
+  const blocsPendents = agruparBlocs((pendents ?? []) as any[])
 
   return (
     <div className="space-y-6">
@@ -148,39 +151,43 @@ export default async function SubstitucionsPage() {
       )}
 
       {/* Gestió: pendents de confirmar */}
-      {esGestor && pendents && pendents.length > 0 && (
+      {esGestor && blocsPendents.length > 0 && (
         <section>
           <h2 className="text-sm font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-            Per confirmar ({pendents.length})
+            Per confirmar ({blocsPendents.length})
           </h2>
           <div className="space-y-2">
-            {pendents.map((s: any) => (
-              <Link
-                key={s.id}
-                href={`/substitucions/${s.id}`}
-                className="card flex items-start justify-between gap-3 hover:shadow-md transition-shadow"
-                style={{ textDecoration: 'none' }}
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                    {s.absencia?.docent?.nom}
-                  </p>
-                  <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                    {new Date(s.data).toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
-                    {' · '}{s.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{s.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
-                    {s.horari_setmanal?.grup?.nom && ` · ${s.horari_setmanal.grup.nom}`}
-                  </p>
-                  {s.substitut && (
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-accent)' }}>
-                      Proposat: {s.substitut.nom}
+            {blocsPendents.map(b => {
+              const s: any = b.primera
+              const proposats = Array.from(new Set(b.files.map((f: any) => f.substitut?.nom).filter(Boolean)))
+              return (
+                <Link
+                  key={s.id}
+                  href={`/substitucions/${s.id}`}
+                  className="card flex items-start justify-between gap-3 hover:shadow-md transition-shadow"
+                  style={{ textDecoration: 'none' }}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+                      {s.horari_setmanal?.materia ? `${s.horari_setmanal.materia} · ` : ''}{s.absencia?.docent?.nom}
                     </p>
-                  )}
-                </div>
-                <span className={`badge badge-${s.estat} flex-shrink-0`}>
-                  {s.estat === 'pendent' ? 'Pendent' : 'Proposta'}
-                </span>
-              </Link>
-            ))}
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
+                      {new Date(s.data).toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
+                      {' · '}{textHoraBloc(b)}
+                      {s.horari_setmanal?.grup?.nom && ` · ${s.horari_setmanal.grup.nom}`}
+                    </p>
+                    {proposats.length > 0 && (
+                      <p className="text-xs mt-0.5" style={{ color: 'var(--color-accent)' }}>
+                        Proposat: {proposats.join(' / ')}
+                      </p>
+                    )}
+                  </div>
+                  <span className={`badge badge-${s.estat} flex-shrink-0`}>
+                    {s.estat === 'pendent' ? 'Pendent' : 'Proposta'}
+                  </span>
+                </Link>
+              )
+            })}
           </div>
         </section>
       )}

@@ -10,6 +10,7 @@ import {
   enviarNotificacioAbsenciaComunicadaPerAltre,
 } from '@/lib/email'
 import { esEquipDirectiu } from '@/lib/roles'
+import { docentsOcupats } from '@/lib/ocupacio'
 
 /**
  * Retorna els dies laborables (dl–dv) entre dues dates, en format YYYY-MM-DD.
@@ -37,7 +38,7 @@ function diaSetmana(dateStr: string): number {
 
 /**
  * Proposa el millor substitut per a una franja:
- *  1. Guàrdia → 2. Permanència → 3. HNL
+ *  1. Guàrdia → 2. Permanència → 3. HNL → 4. Hora lliure (sense res a l'horari)
  *  Restricció: ha de pertànyer a l'etapa del docent absent.
  */
 async function proposaSubstitut(
@@ -46,7 +47,11 @@ async function proposaSubstitut(
   diaNum: number,
   data: string,
   etapaId: string,
-  docentAbsentId: string
+  docentAbsentId: string,
+  /** Docents que no poden substituir (sortida o una altra substitució en la franja) */
+  exclosos: Set<string> = new Set(),
+  /** Substitut de la franja anterior del mateix bloc: se'l prefereix per no partir el bloc */
+  preferit: string | null = null
 ): Promise<{ substitutId: string | null; motiu: string | null }> {
   const { data: docentEtapa } = await supabase
     .from('docent_etapes')
@@ -56,7 +61,10 @@ async function proposaSubstitut(
 
   if (!docentEtapa || docentEtapa.length === 0) return { substitutId: null, motiu: null }
 
-  const docentIdsEtapa = docentEtapa.map(d => d.docent_id)
+  const docentIdsEtapa = docentEtapa.map(d => d.docent_id).filter(id => !exclosos.has(id))
+  if (docentIdsEtapa.length === 0) return { substitutId: null, motiu: null }
+
+  const triar = (ids: string[]) => (preferit && ids.includes(preferit) ? preferit : ids[0])
 
   // Prioritat 0: docents alliberats per sortida aprovada en aquesta franja
   const { data: sortidesDelDia } = await supabase
@@ -84,10 +92,12 @@ async function proposaSubstitut(
         .in('grup_id', grupIds)
         .in('docent_id', docentIdsEtapa)
 
-      const candidat = (alliberats ?? []).find(d => !acompanyantIds.has(d.docent_id))
-      if (candidat) {
+      const idsAlliberats = (alliberats ?? [])
+        .map(d => d.docent_id)
+        .filter(id => !acompanyantIds.has(id))
+      if (idsAlliberats.length > 0) {
         return {
-          substitutId: candidat.docent_id,
+          substitutId: triar(idsAlliberats),
           motiu: 'Docent alliberat per sortida escolar en aquesta franja',
         }
       }
@@ -95,7 +105,7 @@ async function proposaSubstitut(
   }
 
   // Prioritat 1-3: guàrdia, permanència, HNL
-  for (const tipus of ['guardia', 'permanencia', 'hnl'] as const) {
+  for (const tipus of ['guardia', 'permanencia', 'hnl', 'disponible'] as const) {
     const { data: candidats } = await supabase
       .from('horari_setmanal')
       .select('docent_id')
@@ -106,8 +116,8 @@ async function proposaSubstitut(
 
     if (candidats && candidats.length > 0) {
       return {
-        substitutId: candidats[0].docent_id,
-        motiu: `Docent amb ${tipus === 'guardia' ? 'guàrdia' : tipus === 'permanencia' ? 'permanència' : 'HNL'} en aquesta franja`,
+        substitutId: triar(candidats.map(c => c.docent_id)),
+        motiu: `Docent amb ${tipus === 'guardia' ? 'guàrdia' : tipus === 'permanencia' ? 'permanència' : tipus === 'hnl' ? 'HNL' : 'hora lliure'} en aquesta franja`,
       }
     }
   }
@@ -340,8 +350,15 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
     })
 
     const substitucionsACrear: any[] = []
+    // Substituts ja decidits en aquest dia (per franja) i últim substitut de cada bloc
+    const ocupatsPerFranja = new Map<string, Set<string>>()
+    const ultimPerBloc = new Map<string, { substitutId: string; horaFi: string }>()
 
-    for (const h of frangesAfectades as any[]) {
+    const franguesOrdenades = [...(frangesAfectades as any[])].sort((a, b) =>
+      (a.franja?.hora_inici ?? '').localeCompare(b.franja?.hora_inici ?? '')
+    )
+
+    for (const h of franguesOrdenades) {
       if (['guardia', 'reunio', 'esbarjo', 'disponible'].includes(h.tipus)) continue
 
       if (h.tipus_parella === 'codocencia') {
@@ -362,9 +379,28 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
       let motiuProposta: string | null = null
 
       if (etapaId && h.franja?.id) {
-        const proposta = await proposaSubstitut(supabase, h.franja.id, diaNum, data, etapaId, absencia.docent_id)
+        const exclosos = new Set<string>(
+          (await docentsOcupats(supabase, {
+            data, horaInici: h.franja.hora_inici, horaFi: h.franja.hora_fi,
+          })).keys()
+        )
+        for (const id of ocupatsPerFranja.get(h.franja.id) ?? []) exclosos.add(id)
+
+        const claubloc = `${h.grup?.nom ?? ''}|${h.materia ?? ''}|${h.tipus}`
+        const anterior = ultimPerBloc.get(claubloc)
+        const preferit = anterior && anterior.horaFi === h.franja.hora_inici ? anterior.substitutId : null
+
+        const proposta = await proposaSubstitut(
+          supabase, h.franja.id, diaNum, data, etapaId, absencia.docent_id, exclosos, preferit
+        )
         substitutId = proposta.substitutId
         motiuProposta = proposta.motiu
+
+        if (substitutId) {
+          if (!ocupatsPerFranja.has(h.franja.id)) ocupatsPerFranja.set(h.franja.id, new Set())
+          ocupatsPerFranja.get(h.franja.id)!.add(substitutId)
+          ultimPerBloc.set(claubloc, { substitutId, horaFi: h.franja.hora_fi })
+        }
       }
 
       substitucionsACrear.push({

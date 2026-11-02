@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { agruparBlocs, textHoraBloc } from '@/lib/substitucions-blocs'
 
 const TEXT_ESTAT: Record<string, string> = {
   pendent: 'Pendent',
@@ -23,6 +24,8 @@ interface Props {
  */
 export default function SubstitucionsPersonals({ comsubs, generades, avui }: Props) {
   const [tab, setTab] = useState<'fer' | 'generades'>('fer')
+  const blocsFer = agruparBlocs(comsubs)
+  const blocsGenerades = agruparBlocs(generades)
 
   return (
     <section>
@@ -35,7 +38,7 @@ export default function SubstitucionsPersonals({ comsubs, generades, avui }: Pro
             color: tab === 'fer' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
           }}
         >
-          Que haig de fer{comsubs.length > 0 ? ` (${comsubs.length})` : ''}
+          Que haig de fer{blocsFer.length > 0 ? ` (${blocsFer.length})` : ''}
         </button>
         <button
           onClick={() => setTab('generades')}
@@ -45,14 +48,15 @@ export default function SubstitucionsPersonals({ comsubs, generades, avui }: Pro
             color: tab === 'generades' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
           }}
         >
-          Que he generat{generades.length > 0 ? ` (${generades.length})` : ''}
+          Que he generat{blocsGenerades.length > 0 ? ` (${blocsGenerades.length})` : ''}
         </button>
       </div>
 
       {tab === 'fer' ? (
-        comsubs.length > 0 ? (
+        blocsFer.length > 0 ? (
           <div className="space-y-2">
-            {comsubs.map((s: any) => {
+            {blocsFer.map((b) => {
+              const s: any = b.primera
               const esFutura = s.data >= avui
               return (
                 <Link
@@ -66,13 +70,12 @@ export default function SubstitucionsPersonals({ comsubs, generades, avui }: Pro
                       {new Date(s.data).toLocaleDateString('ca-ES', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}
                     </p>
                     <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                      {s.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{s.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
+                      {textHoraBloc(b)}
                       {s.absencia?.docent?.nom && ` · Supleix ${s.absencia.docent.nom}`}
                     </p>
-                    {s.horari_setmanal?.grup?.nom && (
+                    {(s.horari_setmanal?.grup?.nom || s.horari_setmanal?.materia) && (
                       <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                        {s.horari_setmanal.grup.nom}
-                        {s.horari_setmanal.materia && ` · ${s.horari_setmanal.materia}`}
+                        {[s.horari_setmanal.materia, s.horari_setmanal.grup?.nom].filter(Boolean).join(' · ')}
                       </p>
                     )}
                     {s.feina_substitut && (
@@ -93,9 +96,10 @@ export default function SubstitucionsPersonals({ comsubs, generades, avui }: Pro
             <p className="text-sm">No tens cap substitució per fer.</p>
           </div>
         )
-      ) : generades.length > 0 ? (
+      ) : blocsGenerades.length > 0 ? (
         <div className="space-y-2">
-          {generades.map((s: any) => {
+          {blocsGenerades.map((b) => {
+            const s: any = b.primera
             const esFutura = s.data >= avui
             return (
               <Link
@@ -109,12 +113,12 @@ export default function SubstitucionsPersonals({ comsubs, generades, avui }: Pro
                     {new Date(s.data).toLocaleDateString('ca-ES', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}
                   </p>
                   <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                    {s.horari_setmanal?.franja?.hora_inici?.slice(0, 5)}–{s.horari_setmanal?.franja?.hora_fi?.slice(0, 5)}
-                    {s.horari_setmanal?.grup?.nom && ` · ${s.horari_setmanal.grup.nom}`}
+                    {textHoraBloc(b)}
+                    {[s.horari_setmanal?.materia, s.horari_setmanal?.grup?.nom].filter(Boolean).map(x => ` · ${x}`).join('')}
                   </p>
                   {s.substitut?.nom ? (
                     <p className="text-xs mt-0.5" style={{ color: 'var(--color-accent)' }}>
-                      Cobreix: {s.substitut.nom}
+                      Cobreix: {Array.from(new Set(b.files.map((f: any) => f.substitut?.nom).filter(Boolean))).join(' / ')}
                     </p>
                   ) : s.estat === 'no_cal' ? (
                     <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>

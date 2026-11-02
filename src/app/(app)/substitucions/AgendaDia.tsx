@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { agruparBlocs, textHoraBloc, type Bloc } from '@/lib/substitucions-blocs'
 
 const TIPUS_HORARI: Record<string, string> = {
   classe: 'Classe',
@@ -17,6 +18,9 @@ interface Substitucio {
   id: string
   estat: string
   data: string
+  absencia_id?: string | null
+  sortida_id?: string | null
+  substitut_id?: string | null
   horari_setmanal: {
     tipus: string
     materia: string | null
@@ -37,8 +41,8 @@ export default function AgendaDia({ substitucions, dataSeleccionada }: Props) {
 
   const filtrades = substitucions.filter(s => s.data === data)
 
-  const pendents = filtrades.filter(s => s.estat === 'pendent' || s.estat === 'proposta_ia')
-  const resoltes = filtrades.filter(s => s.estat === 'confirmada' || s.estat === 'no_cal')
+  const pendents = agruparBlocs(filtrades.filter(s => s.estat === 'pendent' || s.estat === 'proposta_ia'))
+  const resoltes = agruparBlocs(filtrades.filter(s => s.estat === 'confirmada' || s.estat === 'no_cal'))
 
   return (
     <section>
@@ -72,7 +76,7 @@ export default function AgendaDia({ substitucions, dataSeleccionada }: Props) {
                 Per confirmar ({pendents.length})
               </p>
               <div className="space-y-2">
-                {pendents.map(s => <SubstitucioAgendaItem key={s.id} s={s} />)}
+                {pendents.map(b => <SubstitucioAgendaItem key={b.primera.id} b={b} />)}
               </div>
             </div>
           )}
@@ -82,7 +86,7 @@ export default function AgendaDia({ substitucions, dataSeleccionada }: Props) {
                 Resoltes ({resoltes.length})
               </p>
               <div className="space-y-2">
-                {resoltes.map(s => <SubstitucioAgendaItem key={s.id} s={s} />)}
+                {resoltes.map(b => <SubstitucioAgendaItem key={b.primera.id} b={b} />)}
               </div>
             </div>
           )}
@@ -92,10 +96,10 @@ export default function AgendaDia({ substitucions, dataSeleccionada }: Props) {
   )
 }
 
-function SubstitucioAgendaItem({ s }: { s: Substitucio }) {
-  const hora = s.horari_setmanal?.franja
-    ? `${s.horari_setmanal.franja.hora_inici.slice(0, 5)}–${s.horari_setmanal.franja.hora_fi.slice(0, 5)}`
-    : '—'
+function SubstitucioAgendaItem({ b }: { b: Bloc<Substitucio> }) {
+  const s = b.primera
+  const hora = b.horaInici ? textHoraBloc(b) : '—'
+  const substituts = Array.from(new Set(b.files.map(f => f.substitut?.nom).filter(Boolean)))
 
   return (
     <Link
@@ -120,11 +124,11 @@ function SubstitucioAgendaItem({ s }: { s: Substitucio }) {
           )}
         </div>
         <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-          Absent: {s.absencia?.docent?.nom ?? '—'}
+          Substitueix: {s.absencia?.docent?.nom ?? '—'}
         </p>
-        {s.substitut ? (
+        {substituts.length > 0 ? (
           <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--color-success)' }}>
-            Substitut/a: {s.substitut.nom}
+            Substitut/a: {substituts.join(' / ')}
           </p>
         ) : s.estat === 'no_cal' ? (
           <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>

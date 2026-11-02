@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
+import { esEquipDirectiu } from '@/lib/roles'
+import SelectorDocent from './SelectorDocent'
 
 const DIES = ['Dilluns', 'Dimarts', 'Dimecres', 'Dijous', 'Divendres']
 
@@ -34,7 +36,12 @@ interface EntradaHorari {
   parella_docent: { nom: string } | null
 }
 
-export default async function HorariPage() {
+export default async function HorariPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ docent?: string }>
+}) {
+  const { docent: docentParam } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -46,6 +53,24 @@ export default async function HorariPage() {
 
   if (!docent) return null
 
+  // L'equip directiu pot consultar l'horari de qualsevol docent; per defecte veu el seu.
+  const { data: rols } = await supabase.from('docent_rols').select('rol').eq('docent_id', docent.id)
+  const esGestor = esEquipDirectiu(rols)
+
+  let docentsLlista: { id: string; nom: string }[] = []
+  let docentVist: { id: string; nom: string } = docent
+  if (esGestor) {
+    const [{ data: tots }, { data: rolsPas }] = await Promise.all([
+      supabase.from('docents').select('id, nom').eq('actiu', true).order('nom'),
+      supabase.from('docent_rols').select('docent_id').eq('rol', 'pas'),
+    ])
+    const idsPas = new Set((rolsPas ?? []).map((r: any) => r.docent_id))
+    docentsLlista = (tots ?? []).filter((d: any) => !idsPas.has(d.id))
+    const triat = docentsLlista.find(d => d.id === docentParam)
+    if (triat) docentVist = triat
+  }
+  const veigAltre = docentVist.id !== docent.id
+
   const { data: horariRaw } = await supabase
     .from('horari_setmanal')
     .select(`
@@ -54,7 +79,7 @@ export default async function HorariPage() {
       grup:grup_id(nom),
       parella_docent:parella_docent_id(nom)
     `)
-    .eq('docent_id', docent.id)
+    .eq('docent_id', docentVist.id)
     .order('dia_setmana')
 
   const horari = (horariRaw ?? []).map((h: any) => ({
@@ -67,7 +92,10 @@ export default async function HorariPage() {
   if (horari.length === 0) {
     return (
       <div className="space-y-4">
-        <h1 className="text-xl font-semibold" style={{ color: 'var(--color-primary)' }}>El meu horari</h1>
+        <h1 className="text-xl font-semibold" style={{ color: 'var(--color-primary)' }}>
+          {veigAltre ? `Horari de ${docentVist.nom}` : 'El meu horari'}
+        </h1>
+        {esGestor && <SelectorDocent docents={docentsLlista} seleccionat={docentVist.id} propiId={docent.id} />}
         <div className="card text-center py-10" style={{ color: 'var(--color-text-secondary)' }}>
           <p className="text-sm">No s&apos;ha trobat l&apos;horari. Contacta amb l&apos;administrador.</p>
         </div>
@@ -99,8 +127,10 @@ export default async function HorariPage() {
   return (
     <div className="space-y-5">
       <h1 className="text-xl font-semibold" style={{ color: 'var(--color-primary)' }}>
-        El meu horari
+        {veigAltre ? `Horari de ${docentVist.nom}` : 'El meu horari'}
       </h1>
+
+      {esGestor && <SelectorDocent docents={docentsLlista} seleccionat={docentVist.id} propiId={docent.id} />}
 
       {/* Vista mòbil: un dia per secció, amb totes les franges (buides en blanc) */}
       <div className="lg:hidden space-y-4">
