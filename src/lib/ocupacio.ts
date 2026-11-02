@@ -36,7 +36,7 @@ export async function docentsOcupats(
     .from('substitucions')
     .select(`
       id, substitut_id,
-      horari_setmanal:horari_setmanal_id(franja:franja_id(hora_inici, hora_fi)),
+      horari_setmanal:horari_setmanal_id(docent:docent_id(nom), franja:franja_id(hora_inici, hora_fi)),
       absencia:absencia_id(docent:docent_id(nom))
     `)
     .eq('data', data)
@@ -48,7 +48,7 @@ export async function docentsOcupats(
     if (exclosos.has(s.id)) continue
     const f = s.horari_setmanal?.franja
     if (f && f.hora_inici < horaFi && f.hora_fi > horaInici && !ocupats.has(s.substitut_id)) {
-      const absent = s.absencia?.docent?.nom
+      const absent = s.absencia?.docent?.nom ?? s.horari_setmanal?.docent?.nom
       ocupats.set(s.substitut_id, absent ? `Substitueix ${absent}` : 'Ja fa una altra substitució')
     }
   }

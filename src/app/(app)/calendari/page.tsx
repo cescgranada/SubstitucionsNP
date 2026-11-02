@@ -63,9 +63,9 @@ export default async function CalendariPage({
     supabase
       .from('substitucions')
       .select(`
-        id, data, estat,
+        id, data, estat, absencia_id, sortida_id, substitut_id,
         substitut:substitut_id(nom),
-        horari_setmanal:horari_setmanal_id(docent_id, materia, grup_id, franja:franja_id(hora_inici, hora_fi), grup:grup_id(nom)),
+        horari_setmanal:horari_setmanal_id(docent_id, docent:docent_id(nom), tipus, materia, grup_id, franja:franja_id(hora_inici, hora_fi), grup:grup_id(nom)),
         absencia:absencia_id(docent_id, motiu, docent:docent_id(nom))
       `)
       .neq('estat', 'eliminada')

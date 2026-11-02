@@ -12,6 +12,7 @@ export type FilaBloc = {
   sortida_id?: string | null
   absencia?: { docent?: { nom?: string | null } | null } | null
   horari_setmanal?: {
+    docent?: { nom?: string | null } | null
     tipus?: string | null
     materia?: string | null
     grup?: { nom?: string | null } | null
@@ -34,7 +35,7 @@ function clauBloc(s: FilaBloc): string {
   // un cop confirmada sí que importa qui la cobreix.
   const oberta = s.estat === 'pendent' || s.estat === 'proposta_ia'
   return [
-    s.absencia_id ?? s.sortida_id ?? s.absencia?.docent?.nom ?? '',
+    s.absencia_id ?? s.sortida_id ?? nomAbsent(s) ?? '',
     s.data,
     h?.grup?.nom ?? '',
     h?.materia ?? '',
@@ -83,4 +84,15 @@ export function agruparBlocs<T extends FilaBloc>(files: T[]): Bloc<T>[] {
 /** "09:00–10:30" a partir d'un bloc. */
 export function textHoraBloc(b: { horaInici: string; horaFi: string }): string {
   return `${b.horaInici.slice(0, 5)}–${b.horaFi.slice(0, 5)}`
+}
+
+/**
+ * Docent a qui es substitueix: el de l'absència o, en una sortida, el
+ * propietari de l'horari (el que acompanya la sortida i deixa la classe).
+ */
+export function nomAbsent(s: {
+  absencia?: { docent?: { nom?: string | null } | null } | null
+  horari_setmanal?: { docent?: { nom?: string | null } | null } | null
+}): string | null {
+  return s.absencia?.docent?.nom ?? s.horari_setmanal?.docent?.nom ?? null
 }

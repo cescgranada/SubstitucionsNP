@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { enviarNotificacioSubstitut } from '@/lib/email'
+import { enviarNotificacioSubstitut, enviarNotificacioSubstitucioAnullada } from '@/lib/email'
 import { esEquipDirectiu } from '@/lib/roles'
 
 type Supabase = Awaited<ReturnType<typeof createClient>>
@@ -26,6 +26,40 @@ async function gestorActual(supabase: Supabase): Promise<{ id: string } | { erro
   return { id }
 }
 
+/** Avisa els substituts que perden una franja ja confirmada (substitucions desplaçades). */
+async function avisarDesplacats(supabase: Supabase, desplacats: Map<string, string[]>) {
+  if (desplacats.size === 0) return
+  const { data: filesAnt } = await supabase
+    .from('substitucions')
+    .select(`
+      id, data,
+      horari_setmanal:horari_setmanal_id(
+        docent:docent_id(nom),
+        franja:franja_id(hora_inici, hora_fi),
+        grup:grup_id(nom)
+      ),
+      absencia:absencia_id(docent:docent_id(nom))
+    `)
+    .in('id', Array.from(desplacats.values()).flat())
+  for (const [anteriorId, idsAnt] of desplacats) {
+    const { data: anterior } = await supabase.from('docents').select('nom, email').eq('id', anteriorId).single()
+    if (!anterior?.email) continue
+    const fs = ((filesAnt ?? []) as any[]).filter(f => idsAnt.includes(f.id))
+    if (fs.length === 0) continue
+    const inicis = fs.map(f => f.horari_setmanal?.franja?.hora_inici ?? '').sort()
+    const fins = fs.map(f => f.horari_setmanal?.franja?.hora_fi ?? '').sort()
+    enviarNotificacioSubstitucioAnullada({
+      emailSubstitut: anterior.email,
+      nomSubstitut: anterior.nom,
+      nomDocentAbsent: fs[0].absencia?.docent?.nom ?? fs[0].horari_setmanal?.docent?.nom ?? '',
+      data: fs[0].data,
+      horaInici: inicis[0] ?? '',
+      horaFi: fins[fins.length - 1] ?? '',
+      grup: fs[0].horari_setmanal?.grup?.nom,
+    }).catch(console.error)
+  }
+}
+
 /**
  * Confirma una o diverses franges (un bloc), assigna el substitut de cada
  * una i envia un correu a cada substitut amb el tram que cobreix.
@@ -45,7 +79,7 @@ export async function confirmarBloc(params: {
   const ids = params.assignacions.map(a => a.substitucioId)
   const { data: actuals } = await supabase
     .from('substitucions')
-    .select('id, estat, absencia:absencia_id(docent_id)')
+    .select('id, estat, substitut_id, absencia:absencia_id(docent_id)')
     .in('id', ids)
 
   if (!actuals || actuals.length !== ids.length) return { ok: false, error: 'Substitució no trobada' }
@@ -81,19 +115,38 @@ export async function confirmarBloc(params: {
     }
   }
 
+  // Qui ja era a la franja abans d'aquest canvi (només si ja estava confirmada):
+  // si es canvia la persona, l'anterior rep l'avís d'anul·lació i la nova el de
+  // confirmació; qui no canvia no rep res de nou.
+  const abans = new Map<string, string>()
+  for (const a of actuals as any[]) {
+    if (a.estat === 'confirmada' && a.substitut_id) abans.set(a.id, a.substitut_id)
+  }
+  const nou = new Map(params.assignacions.map(a => [a.substitucioId, a.substitutId]))
+  const canviades = ids.filter(id => abans.get(id) !== nou.get(id))
+
   // Un correu per substitut, amb el tram complet que cobreix
   const { data: files } = await supabase
     .from('substitucions')
     .select(`
       id, substitut_id, data, feina_substitut,
       horari_setmanal:horari_setmanal_id(
+        docent:docent_id(nom),
         materia, aula,
         franja:franja_id(hora_inici, hora_fi),
         grup:grup_id(nom)
       ),
       absencia:absencia_id(docent:docent_id(nom))
     `)
-    .in('id', ids)
+    .in('id', canviades)
+
+  // Avís als substituts desplaçats
+  const desplacats = new Map<string, string[]>()
+  for (const id of canviades) {
+    const anterior = abans.get(id)
+    if (anterior) desplacats.set(anterior, [...(desplacats.get(anterior) ?? []), id])
+  }
+  await avisarDesplacats(supabase, desplacats)
 
   const perSubstitut = new Map<string, any[]>()
   for (const f of (files ?? []) as any[]) {
@@ -115,7 +168,7 @@ export async function confirmarBloc(params: {
     enviarNotificacioSubstitut({
       emailSubstitut: substitut.email,
       nomSubstitut: substitut.nom,
-      nomDocentAbsent: franges[0].absencia?.docent?.nom ?? '',
+      nomDocentAbsent: franges[0].absencia?.docent?.nom ?? h?.docent?.nom ?? '',
       data: franges[0].data,
       horaInici: inicis[0] ?? '',
       horaFi: fins[fins.length - 1] ?? '',
@@ -145,7 +198,7 @@ export async function marcarSenseSubstitucio(
 
   const { data: actuals } = await supabase
     .from('substitucions')
-    .select('id, estat')
+    .select('id, estat, substitut_id')
     .in('id', substitucioIds)
 
   if (!actuals || actuals.length !== substitucioIds.length) return { ok: false, error: 'Substitució no trobada' }
@@ -169,6 +222,15 @@ export async function marcarSenseSubstitucio(
     return { ok: false, error: "No s'ha pogut desar el canvi (sense permís)" }
   }
 
+  // Si la franja ja estava confirmada, el substitut anterior en queda alliberat
+  const desplacats = new Map<string, string[]>()
+  for (const a of actuals as any[]) {
+    if (a.estat === 'confirmada' && a.substitut_id) {
+      desplacats.set(a.substitut_id, [...(desplacats.get(a.substitut_id) ?? []), a.id])
+    }
+  }
+  await avisarDesplacats(supabase, desplacats)
+
   return { ok: true }
 }
 
@@ -190,6 +252,7 @@ export async function actualitzarFeinaSubstitut(params: {
     .select(`
       id, substitut_id, data, feina_substitut,
       horari_setmanal:horari_setmanal_id(
+        docent:docent_id(nom),
         materia, aula,
         franja:franja_id(hora_inici, hora_fi),
         grup:grup_id(nom)
@@ -240,7 +303,7 @@ export async function actualitzarFeinaSubstitut(params: {
     enviarNotificacioSubstitut({
       emailSubstitut: substitut.email,
       nomSubstitut: substitut.nom,
-      nomDocentAbsent: fs[0].absencia?.docent?.nom ?? '',
+      nomDocentAbsent: fs[0].absencia?.docent?.nom ?? h?.docent?.nom ?? '',
       data: fs[0].data,
       horaInici: inicis[0] ?? '',
       horaFi: fins[fins.length - 1] ?? '',

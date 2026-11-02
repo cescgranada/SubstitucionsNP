@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { esEquipDirectiu } from '@/lib/roles'
+import { agruparBlocs } from '@/lib/substitucions-blocs'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -30,10 +31,15 @@ export default async function DashboardPage() {
 
   // Substitucions rellevants: excloem les generades per sortides (no compten,
   // per definició) i les eliminades (retirades, no van passar de veritat).
-  // Regla de càlcul: 1 substitució per cada classe/franja individual afectada.
+  // Regla de càlcul: 1 substitució per cada classe, encara que ocupi diverses
+  // franges de 30 minuts seguides (es compten com un sol bloc).
   const { data: substitucions } = await supabase
     .from('substitucions')
-    .select('substitut_id, estat, absencia:absencia_id(docent_id)')
+    .select(`
+      id, data, estat, substitut_id, absencia_id,
+      horari_setmanal:horari_setmanal_id(tipus, materia, grup:grup_id(nom), franja:franja_id(hora_inici, hora_fi)),
+      absencia:absencia_id(docent_id)
+    `)
     .is('sortida_id', null)
     .not('absencia_id', 'is', null)
     .neq('estat', 'eliminada')
@@ -42,7 +48,8 @@ export default async function DashboardPage() {
   const realitzades = new Map<string, number>()
   const noCalAssignar = new Map<string, number>()
 
-  for (const s of (substitucions ?? []) as any[]) {
+  for (const b of agruparBlocs((substitucions ?? []) as any[])) {
+    const s: any = b.primera
     const docentAbsentId = s.absencia?.docent_id
     if (docentAbsentId) {
       generades.set(docentAbsentId, (generades.get(docentAbsentId) ?? 0) + 1)
@@ -95,7 +102,7 @@ export default async function DashboardPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
-              {['Docent', 'Generades', 'Sense assignar substitut', 'Realitzades'].map(h => (
+              {['Docent', 'Generades', 'No calia substitut', 'Realitzades'].map(h => (
                 <th
                   key={h}
                   style={{

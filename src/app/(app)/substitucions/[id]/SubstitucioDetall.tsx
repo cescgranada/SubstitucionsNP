@@ -3,30 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { confirmarBloc, actualitzarFeinaSubstitut, marcarSenseSubstitucio } from '@/lib/actions/substitucions'
-
-const MOTIUS: Record<string, string> = {
-  medic: 'Mèdic',
-  dia_personal: 'Dia personal',
-  formacio: 'Formació',
-}
-
-const TIPUS_HORARI: Record<string, string> = {
-  classe: 'Classe',
-  guardia: 'Guàrdia',
-  permanencia: 'Permanència',
-  reunio: 'Reunió',
-  esbarjo: 'Esbarjo',
-  hnl: 'Hora no lectiva',
-  disponible: 'Disponible',
-}
-
-const TEXT_ESTAT: Record<string, string> = {
-  pendent: 'Pendent',
-  proposta_ia: 'Proposta',
-  confirmada: 'Confirmada',
-  no_cal: 'No cal substitut',
-  eliminada: 'Eliminada',
-}
+import { nomAbsent } from '@/lib/substitucions-blocs'
+import { MOTIUS, TIPUS_HORARI, ESTAT_SUBSTITUCIO as TEXT_ESTAT } from '@/lib/etiquetes'
 
 function formatDataHora(iso: string): string {
   return new Date(iso).toLocaleDateString('ca-ES', {
@@ -165,7 +143,7 @@ export default function SubstitucioDetall({
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h1 className="text-lg font-semibold" style={{ color: 'var(--color-primary)' }}>
-              {substitucio.absencia?.docent?.nom ?? 'Substitució'}
+              {nomAbsent(substitucio) ?? 'Substitució'}
             </h1>
             {(substitucio.horari_setmanal?.materia || substitucio.horari_setmanal?.grup?.nom) && (
               <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--color-text)' }}>
@@ -300,10 +278,10 @@ export default function SubstitucioDetall({
       </div>
 
       {/* Gestió: assignar substitut */}
-      {esGestor && ['pendent', 'proposta_ia'].includes(substitucio.estat) && (
+      {esGestor && substitucio.estat !== 'eliminada' && (
         <div className="card space-y-4">
           <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
-            Assignar substitut/a
+            {['pendent', 'proposta_ia'].includes(substitucio.estat) ? 'Assignar substitut/a' : 'Canviar substitut/a'}
           </h2>
           {bloc.franges.length > 1 && (
             <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
@@ -437,9 +415,10 @@ export default function SubstitucioDetall({
             disabled={!potConfirmar || loading}
             className="btn-primary w-full"
           >
-            {loading ? 'Confirmant...' : 'Confirmar substitució'}
+            {loading ? 'Desant...' : ['pendent', 'proposta_ia'].includes(substitucio.estat) ? 'Confirmar substitució' : 'Desar el canvi'}
           </button>
 
+          {substitucio.estat !== 'no_cal' && (
           <button
             onClick={handleSenseSubstitucio}
             disabled={loading}
@@ -448,6 +427,7 @@ export default function SubstitucioDetall({
           >
             No cal substitut/a per a aquesta {bloc.franges.length > 1 ? 'classe' : 'franja'}
           </button>
+          )}
         </div>
       )}
 

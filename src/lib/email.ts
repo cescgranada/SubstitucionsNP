@@ -114,49 +114,6 @@ export async function enviarNotificacioSubstitut(params: {
 }
 
 /**
- * Notifica al cap de personal que hi ha una absència per dia personal pendent d'aprovació
- */
-export async function enviarNotificacioAprovacioPendent(params: {
-  emailGestor: string
-  nomGestor: string
-  nomDocent: string
-  data: string
-  motiu: string
-}): Promise<void> {
-  if (!esConfigurat()) {
-    console.log('[email] Resend no configurat, saltant notificació a', params.emailGestor)
-    return
-  }
-
-  const dataFormatada = new Date(params.data + 'T12:00:00').toLocaleDateString('ca-ES', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  })
-
-  const contingut = `
-    <p>Hola, <strong>${params.nomGestor}</strong>!</p>
-    <p><strong>${params.nomDocent}</strong> ha comunicat una absència pendent d'aprovació:</p>
-    <div class="info-box">
-      <div class="info-row">
-        <span class="info-label">Data</span>
-        <span class="info-value">${dataFormatada}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">Motiu</span>
-        <span class="info-value">${params.motiu === 'dia_personal' ? 'Dia personal' : params.motiu}</span>
-      </div>
-    </div>
-    <p>Accedeix a SubsCoop per aprovar o rebutjar la sol·licitud.</p>
-  `
-
-  await resend.emails.send({
-    from: FROM,
-    to: params.emailGestor,
-    subject: `Absència pendent d'aprovació — ${params.nomDocent}`,
-    html: htmlBase(contingut),
-  })
-}
-
-/**
  * Notifica al substitut que la seva substitució ha estat cancel·lada
  */
 export async function enviarNotificacioSubstitucioAnullada(params: {
@@ -203,52 +160,59 @@ export async function enviarNotificacioSubstitucioAnullada(params: {
 }
 
 /**
- * Notifica al coordinador d'etapa (o director) que s'han generat substitucions automàticament
+ * Correu únic per a l'equip directiu sobre una absència. Serveix per a les
+ * dues fases: `pendent` (un dia personal espera aprovació) i `substitucions`
+ * (ja és operativa i s'han generat les substitucions per revisar).
  */
-export async function enviarNotificacioCoordinador(params: {
-  emailCoordinador: string
-  nomCoordinador: string
+export async function enviarNotificacioAbsenciaGestio(params: {
+  fase: 'pendent' | 'substitucions'
+  emailGestor: string
+  nomGestor: string
   nomDocentAbsent: string
   dataInici: string
   dataFi: string
-  numSubstitucions: number
+  motiu?: string
+  numSubstitucions?: number
 }): Promise<void> {
   if (!esConfigurat()) {
-    console.log('[email] Resend no configurat, saltant notificació a', params.emailCoordinador)
+    console.log('[email] Resend no configurat, saltant notificació a', params.emailGestor)
     return
   }
 
-  const dataIniciF = new Date(params.dataInici + 'T12:00:00').toLocaleDateString('ca-ES', {
+  const format = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('ca-ES', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
   const multiDia = params.dataFi !== params.dataInici
-  const dataFiF = multiDia
-    ? new Date(params.dataFi + 'T12:00:00').toLocaleDateString('ca-ES', {
-        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-      })
-    : null
+  const n = params.numSubstitucions ?? 0
+  const pendent = params.fase === 'pendent'
+
+  const intro = pendent
+    ? `<strong>${params.nomDocentAbsent}</strong> ha comunicat una absència pendent d'aprovació:`
+    : `S'han generat <strong>${n} substitució${n !== 1 ? 'ns' : ''}</strong> per a l'absència de <strong>${params.nomDocentAbsent}</strong>:`
 
   const contingut = `
-    <p>Hola, <strong>${params.nomCoordinador}</strong>!</p>
-    <p>S'han generat <strong>${params.numSubstitucions} substitució${params.numSubstitucions !== 1 ? 'ns' : ''}</strong> per a l'absència de <strong>${params.nomDocentAbsent}</strong>:</p>
+    <p>Hola, <strong>${params.nomGestor}</strong>!</p>
+    <p>${intro}</p>
     <div class="info-box">
       <div class="info-row">
         <span class="info-label">${multiDia ? 'Del' : 'Data'}</span>
-        <span class="info-value">${dataIniciF}</span>
+        <span class="info-value">${format(params.dataInici)}</span>
       </div>
-      ${multiDia ? `<div class="info-row"><span class="info-label">Al</span><span class="info-value">${dataFiF}</span></div>` : ''}
-      <div class="info-row">
-        <span class="info-label">Substitucions</span>
-        <span class="info-value">${params.numSubstitucions}</span>
-      </div>
+      ${multiDia ? `<div class="info-row"><span class="info-label">Al</span><span class="info-value">${format(params.dataFi)}</span></div>` : ''}
+      ${params.motiu ? `<div class="info-row"><span class="info-label">Motiu</span><span class="info-value">${params.motiu === 'dia_personal' ? 'Dia personal' : params.motiu}</span></div>` : ''}
+      ${pendent ? '' : `<div class="info-row"><span class="info-label">Substitucions</span><span class="info-value">${n}</span></div>`}
     </div>
-    <p>Accedeix a SubsCoop per revisar i confirmar les substitucions proposades.</p>
+    <p>${pendent
+      ? 'Accedeix a SubsCoop per aprovar o rebutjar la sol·licitud.'
+      : 'Accedeix a SubsCoop per revisar i confirmar les substitucions proposades.'}</p>
   `
 
   await resend.emails.send({
     from: FROM,
-    to: params.emailCoordinador,
-    subject: `Substitucions generades — ${params.nomDocentAbsent} (${dataIniciF})`,
+    to: params.emailGestor,
+    subject: pendent
+      ? `Absència pendent d'aprovació — ${params.nomDocentAbsent}`
+      : `Substitucions generades — ${params.nomDocentAbsent} (${format(params.dataInici)})`,
     html: htmlBase(contingut),
   })
 }

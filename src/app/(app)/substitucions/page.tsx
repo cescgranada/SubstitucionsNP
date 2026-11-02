@@ -3,7 +3,6 @@ import Link from 'next/link'
 import AgendaDia from './AgendaDia'
 import SubstitucionsPersonals from './SubstitucionsPersonals'
 import { esEquipDirectiu } from '@/lib/roles'
-import { agruparBlocs, textHoraBloc } from '@/lib/substitucions-blocs'
 
 export default async function SubstitucionsPage() {
   const supabase = await createClient()
@@ -35,6 +34,7 @@ export default async function SubstitucionsPage() {
     .select(`
       id, data, estat, feina_substitut, absencia_id, sortida_id, substitut_id,
       horari_setmanal:horari_setmanal_id(
+        docent:docent_id(nom),
         tipus, materia,
         franja:franja_id(hora_inici, hora_fi),
         grup:grup_id(nom)
@@ -56,6 +56,7 @@ export default async function SubstitucionsPage() {
           id, data, estat, absencia_id, sortida_id, substitut_id,
           substitut:substitut_id(nom),
           horari_setmanal:horari_setmanal_id(
+            docent:docent_id(nom),
             tipus, materia,
             franja:franja_id(hora_inici, hora_fi),
             grup:grup_id(nom)
@@ -69,28 +70,6 @@ export default async function SubstitucionsPage() {
         .lte('data', dataAgendaFi)
         .order('data')
         .order('created_at')
-    : { data: null }
-
-  // Substitucions pendents de confirmar (gestors) — resum compacte
-  const { data: pendents } = esGestor
-    ? await supabase
-        .from('substitucions')
-        .select(`
-          id, data, estat, absencia_id, sortida_id, substitut_id,
-          substitut:substitut_id(nom),
-          horari_setmanal:horari_setmanal_id(
-            tipus, materia,
-            franja:franja_id(hora_inici, hora_fi),
-            grup:grup_id(nom)
-          ),
-          absencia:absencia_id(
-            docent:docent_id(nom)
-          )
-        `)
-        .in('estat', ['pendent', 'proposta_ia'])
-        .gte('data', avui)
-        .order('data', { ascending: true })
-        .limit(10)
     : { data: null }
 
   // Substitucions que he generat (per les meves pròpies absències — les
@@ -109,6 +88,7 @@ export default async function SubstitucionsPage() {
           id, data, estat, absencia_id, sortida_id, substitut_id,
           substitut:substitut_id(nom),
           horari_setmanal:horari_setmanal_id(
+            docent:docent_id(nom),
             tipus, materia,
             franja:franja_id(hora_inici, hora_fi),
             grup:grup_id(nom)
@@ -120,7 +100,6 @@ export default async function SubstitucionsPage() {
         .limit(30)
     : { data: [] }
 
-  const blocsPendents = agruparBlocs((pendents ?? []) as any[])
 
   return (
     <div className="space-y-6">
@@ -148,48 +127,6 @@ export default async function SubstitucionsPage() {
           substitucions={agenda as any}
           dataSeleccionada={avui}
         />
-      )}
-
-      {/* Gestió: pendents de confirmar */}
-      {esGestor && blocsPendents.length > 0 && (
-        <section>
-          <h2 className="text-sm font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-            Per confirmar ({blocsPendents.length})
-          </h2>
-          <div className="space-y-2">
-            {blocsPendents.map(b => {
-              const s: any = b.primera
-              const proposats = Array.from(new Set(b.files.map((f: any) => f.substitut?.nom).filter(Boolean)))
-              return (
-                <Link
-                  key={s.id}
-                  href={`/substitucions/${s.id}`}
-                  className="card flex items-start justify-between gap-3 hover:shadow-md transition-shadow"
-                  style={{ textDecoration: 'none' }}
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                      {s.horari_setmanal?.materia ? `${s.horari_setmanal.materia} · ` : ''}{s.absencia?.docent?.nom}
-                    </p>
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                      {new Date(s.data).toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
-                      {' · '}{textHoraBloc(b)}
-                      {s.horari_setmanal?.grup?.nom && ` · ${s.horari_setmanal.grup.nom}`}
-                    </p>
-                    {proposats.length > 0 && (
-                      <p className="text-xs mt-0.5" style={{ color: 'var(--color-accent)' }}>
-                        Proposat: {proposats.join(' / ')}
-                      </p>
-                    )}
-                  </div>
-                  <span className={`badge badge-${s.estat} flex-shrink-0`}>
-                    {s.estat === 'pendent' ? 'Pendent' : 'Proposta'}
-                  </span>
-                </Link>
-              )
-            })}
-          </div>
-        </section>
       )}
 
       {/* Les meves substitucions, en dues pestanyes */}

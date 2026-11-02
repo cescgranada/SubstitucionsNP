@@ -38,11 +38,13 @@ export default async function FullSubstitucionsPage({
       substitut:substitut_id(nom),
       confirmador:confirmat_per(nom),
       horari_setmanal:horari_setmanal_id(
+        docent:docent_id(nom),
         tipus, materia, aula,
         franja:franja_id(hora_inici, hora_fi, ordre),
         grup:grup_id(nom),
         etapa:franja_id(etapa:etapa_id(nom))
       ),
+      sortida:sortida_id(descripcio),
       absencia:absencia_id(
         motiu,
         docent:docent_id(nom)

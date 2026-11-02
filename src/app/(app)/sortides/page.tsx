@@ -2,13 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { esEquipDirectiu, esPas } from '@/lib/roles'
 import SortidesPas from './SortidesPas'
-
-const TEXT_ESTAT: Record<string, string> = {
-  proposta: 'Proposta',
-  aprovada: 'Aprovada',
-  rebutjada: 'Rebutjada',
-  eliminada: 'Eliminada',
-}
+import { ESTAT_SORTIDA as TEXT_ESTAT } from '@/lib/etiquetes'
 
 export default async function SortidesPage() {
   const supabase = await createClient()
@@ -70,16 +64,6 @@ export default async function SortidesPage() {
           Sortides escolars
         </h1>
         <div className="flex items-center gap-2">
-          <Link
-            href="/calendari"
-            className="btn-secondary text-sm px-4 py-2 flex items-center gap-1.5"
-            style={{ minHeight: '36px' }}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
-            </svg>
-            Calendari
-          </Link>
           <Link href="/sortides/nova" className="btn-primary text-sm px-4 py-2" style={{ minHeight: '36px' }}>
             + Nova
           </Link>

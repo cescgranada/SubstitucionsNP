@@ -3,9 +3,8 @@
 import { createClient } from '@/lib/supabase/server'
 import {
   enviarNotificacioSubstitut,
-  enviarNotificacioAprovacioPendent,
+  enviarNotificacioAbsenciaGestio,
   enviarNotificacioRessolucioAbsencia,
-  enviarNotificacioCoordinador,
   enviarNotificacioSubstitucioAnullada,
   enviarNotificacioAbsenciaComunicadaPerAltre,
 } from '@/lib/email'
@@ -463,11 +462,14 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
       .eq('rol', 'equip_directiu')
       .or(`etapa_id.eq.${etapaId},etapa_id.is.null`)
 
+    const jaAvisats = new Set<string>()
     for (const c of (coordinadors ?? []) as any[]) {
-      if (c.docent?.email) {
-        enviarNotificacioCoordinador({
-          emailCoordinador: c.docent.email,
-          nomCoordinador: c.docent.nom,
+      if (c.docent?.email && !jaAvisats.has(c.docent.email)) {
+        jaAvisats.add(c.docent.email)
+        enviarNotificacioAbsenciaGestio({
+          fase: 'substitucions',
+          emailGestor: c.docent.email,
+          nomGestor: c.docent.nom,
           nomDocentAbsent: docentAbsent?.nom ?? '',
           dataInici: absencia.data,
           dataFi: absencia.data_fi ?? absencia.data,
@@ -689,11 +691,13 @@ export async function crearAbsencia(params: {
     for (const g of (gestors ?? []) as any[]) {
       if (g.docent?.email && !emailsVistos.has(g.docent.email)) {
         emailsVistos.add(g.docent.email)
-        enviarNotificacioAprovacioPendent({
+        enviarNotificacioAbsenciaGestio({
+          fase: 'pendent',
           emailGestor: g.docent.email,
           nomGestor: g.docent.nom,
-          nomDocent: docentInfo.nom,
-          data: params.data,
+          nomDocentAbsent: docentInfo.nom,
+          dataInici: params.data,
+          dataFi: params.dataFi ?? params.data,
           motiu: params.motiu,
         }).catch(console.error)
       }
