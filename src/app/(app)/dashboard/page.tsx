@@ -1,9 +1,17 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { esEquipDirectiu } from '@/lib/roles'
-import { agruparBlocs } from '@/lib/substitucions-blocs'
+import { informeResum } from '@/lib/informe'
+import { iniciCurs } from '@/lib/curs'
 
-export default async function DashboardPage() {
+const DATA = /^\d{4}-\d{2}-\d{2}$/
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ des?: string; fins?: string }>
+}) {
+  const { des: desParam, fins: finsParam } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -23,58 +31,23 @@ export default async function DashboardPage() {
   // Accés exclusiu per a l'equip directiu.
   if (!esEquipDirectiu(rols)) redirect('/')
 
-  const { data: docents } = await supabase
-    .from('docents')
-    .select('id, nom')
-    .eq('actiu', true)
-    .order('nom')
+  // Per defecte, el curs actual fins avui
+  const avui = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date())
+  let des = desParam && DATA.test(desParam) ? desParam : iniciCurs(avui)
+  let fins = finsParam && DATA.test(finsParam) ? finsParam : avui
+  if (des > fins) [des, fins] = [fins, des]
 
-  // Substitucions rellevants: excloem les generades per sortides (no compten,
-  // per definició) i les eliminades (retirades, no van passar de veritat).
-  // Regla de càlcul: 1 substitució per cada classe, encara que ocupi diverses
-  // franges de 30 minuts seguides (es compten com un sol bloc).
-  const { data: substitucions } = await supabase
-    .from('substitucions')
-    .select(`
-      id, data, estat, substitut_id, absencia_id,
-      horari_setmanal:horari_setmanal_id(tipus, materia, grup:grup_id(nom), franja:franja_id(hora_inici, hora_fi)),
-      absencia:absencia_id(docent_id)
-    `)
-    .is('sortida_id', null)
-    .not('absencia_id', 'is', null)
-    .neq('estat', 'eliminada')
-
-  const generades = new Map<string, number>()
-  const realitzades = new Map<string, number>()
-  const noCalAssignar = new Map<string, number>()
-
-  for (const b of agruparBlocs((substitucions ?? []) as any[])) {
-    const s: any = b.primera
-    const docentAbsentId = s.absencia?.docent_id
-    if (docentAbsentId) {
-      generades.set(docentAbsentId, (generades.get(docentAbsentId) ?? 0) + 1)
-      if (s.estat === 'no_cal') {
-        noCalAssignar.set(docentAbsentId, (noCalAssignar.get(docentAbsentId) ?? 0) + 1)
-      }
-    }
-    if (s.estat === 'confirmada' && s.substitut_id) {
-      realitzades.set(s.substitut_id, (realitzades.get(s.substitut_id) ?? 0) + 1)
-    }
-  }
-
-  const files = (docents ?? [])
-    .map(d => ({
-      id: d.id,
-      nom: d.nom,
-      generades: generades.get(d.id) ?? 0,
-      realitzades: realitzades.get(d.id) ?? 0,
-      noCal: noCalAssignar.get(d.id) ?? 0,
-    }))
-    .filter(f => f.generades > 0 || f.realitzades > 0)
-    .sort((a, b) => b.generades + b.realitzades - (a.generades + a.realitzades))
+  // Regla de càlcul: 1 per cada classe, encara que ocupi diverses franges de
+  // 30 minuts seguides (es compten com un sol bloc). Sortides i eliminades fora.
+  const files = await informeResum(supabase, des, fins)
 
   const totalGenerades = files.reduce((sum, f) => sum + f.generades, 0)
   const totalRealitzades = files.reduce((sum, f) => sum + f.realitzades, 0)
+  const totalHores = files.reduce((sum, f) => sum + f.hores, 0)
+  const cerca = `des=${des}&fins=${fins}`
+  const format = (n: number) => String(n).replace('.', ',')
+
+  const capcaleres = ['Docent', "Dies d'absència", 'Generades', 'No calia substitut', 'Realitzades', 'Hores cobertes']
 
   return (
     <div className="space-y-6">
@@ -87,7 +60,24 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <form method="get" className="card flex flex-wrap items-end gap-3">
+        <label className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+          Des del
+          <input type="date" name="des" defaultValue={des} className="block mt-1" />
+        </label>
+        <label className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+          Fins al
+          <input type="date" name="fins" defaultValue={fins} className="block mt-1" />
+        </label>
+        <button type="submit" className="btn-primary text-sm" style={{ padding: '8px 16px', minHeight: '40px' }}>
+          Aplicar
+        </button>
+        <a href={`/dashboard?des=${iniciCurs(avui)}&fins=${avui}`} className="text-sm font-medium py-2" style={{ color: 'var(--color-accent)' }}>
+          Curs actual
+        </a>
+      </form>
+
+      <div className="grid grid-cols-3 gap-3">
         <div className="card text-center">
           <p className="text-2xl font-bold" style={{ color: 'var(--color-primary)' }}>{totalGenerades}</p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>Substitucions generades</p>
@@ -96,13 +86,26 @@ export default async function DashboardPage() {
           <p className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>{totalRealitzades}</p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>Substitucions realitzades</p>
         </div>
+        <div className="card text-center">
+          <p className="text-2xl font-bold" style={{ color: 'var(--color-primary)' }}>{format(totalHores)}</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>Hores cobertes</p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-4 text-sm font-medium">
+        <a href={`/dashboard/csv?${cerca}`} style={{ color: 'var(--color-accent)' }}>
+          Descarregar resum (CSV)
+        </a>
+        <a href={`/dashboard/csv?${cerca}&tipus=detall`} style={{ color: 'var(--color-accent)' }}>
+          Descarregar detall per classe (CSV)
+        </a>
       </div>
 
       <div className="card overflow-x-auto">
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
-              {['Docent', 'Generades', 'No calia substitut', 'Realitzades'].map(h => (
+              {capcaleres.map(h => (
                 <th
                   key={h}
                   style={{
@@ -122,8 +125,8 @@ export default async function DashboardPage() {
           <tbody>
             {files.length === 0 ? (
               <tr>
-                <td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-                  Encara no hi ha cap substitució registrada.
+                <td colSpan={capcaleres.length} style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                  No hi ha cap substitució en aquestes dates.
                 </td>
               </tr>
             ) : (
@@ -136,6 +139,9 @@ export default async function DashboardPage() {
                   }}
                 >
                   <td style={{ padding: '10px 12px', fontWeight: 500, color: 'var(--color-text)' }}>{f.nom}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                    {f.diesAbsencia}
+                  </td>
                   <td style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--color-primary)', fontWeight: 600 }}>
                     {f.generades}
                   </td>
@@ -145,12 +151,20 @@ export default async function DashboardPage() {
                   <td style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--color-success)', fontWeight: 600 }}>
                     {f.realitzades}
                   </td>
+                  <td style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                    {format(f.hores)}
+                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+        Dies d&apos;absència: dies lectius amb absència aprovada (una absència parcial compta com un dia).
+        Una classe de diverses franges seguides compta una vegada; les hores es calculen per franges de 30 minuts.
+      </p>
     </div>
   )
 }
