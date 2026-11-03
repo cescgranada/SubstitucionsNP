@@ -1,4 +1,5 @@
 import type { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 type Supabase = Awaited<ReturnType<typeof createClient>>
 
@@ -47,12 +48,25 @@ export async function docentsOcupats(
   }
 
   // Docents que aquell dia són absents (aprovada o pendent) en el tram.
-  // Funció SECURITY DEFINER pel mateix motiu: només retorna docent i hores.
-  const { data: absents } = await supabase.rpc('docents_absents_dia', { p_data: data })
-  for (const a of (absents ?? []) as { docent_id: string; hora_inici: string; hora_fi: string }[]) {
-    if (a.hora_inici < horaFi && a.hora_fi > horaInici && !ocupats.has(a.docent_id)) {
-      ocupats.set(a.docent_id, 'Absent aquest dia')
+  // Per RLS un docent només veu les seves absències, així que es llegeix amb el
+  // client de servei. Aquest codi només corre al servidor i el resultat no surt
+  // d'aquí: només serveix per excloure candidats, mai es retorna la llista d'absents.
+  try {
+    const { data: absents } = await createAdminClient()
+      .from('absencies')
+      .select('docent_id, tot_el_dia, hora_inici, hora_fi')
+      .in('estat', ['pendent', 'aprovada'])
+      .lte('data', data)
+      .or(`data_fi.gte.${data},and(data_fi.is.null,data.eq.${data})`)
+    for (const a of absents ?? []) {
+      const inici = a.tot_el_dia || !a.hora_inici || !a.hora_fi ? '00:00:00' : a.hora_inici
+      const fi = a.tot_el_dia || !a.hora_inici || !a.hora_fi ? '23:59:59' : a.hora_fi
+      if (inici < horaFi && fi > horaInici && !ocupats.has(a.docent_id)) {
+        ocupats.set(a.docent_id, 'Absent aquest dia')
+      }
     }
+  } catch (e) {
+    console.error('No s\'han pogut llegir els docents absents:', e)
   }
 
   return ocupats
