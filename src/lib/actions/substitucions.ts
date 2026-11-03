@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { enviarNotificacioSubstitut, enviarNotificacioSubstitucioAnullada } from '@/lib/email'
+import { enviarNotificacioSubstitut, enviarNotificacioSubstitucioAnullada, enviarAvisRenuncia } from '@/lib/email'
 import { esEquipDirectiu } from '@/lib/roles'
 import { docentsOcupats } from '@/lib/ocupacio'
 
@@ -255,6 +255,82 @@ export async function marcarSenseSubstitucio(
     }
   }
   await avisarDesplacats(supabase, desplacats)
+
+  return { ok: true }
+}
+
+/**
+ * El substitut indica que no pot fer una substitució que se li havia proposat
+ * o que tenia confirmada ("No la puc fer"). Les franges tornen a quedar
+ * pendents, queda registrat qui hi ha renunciat i per què, i s'avisa l'equip
+ * directiu (coordinació de l'etapa i càrrecs globals) perquè hi assigni algú altre.
+ */
+export async function rebutjarSubstitucio(params: {
+  substitucioIds: string[]
+  motiu?: string
+}): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient()
+  const docentId = await docentActualId(supabase)
+  if (!docentId) return { ok: false, error: 'Sessió no vàlida' }
+  if (params.substitucioIds.length === 0) return { ok: false, error: 'Cap franja' }
+
+  // Cal llegir-les abans: un cop renunciades, RLS ja no deixa veure-les al substitut
+  const { data: files } = await supabase
+    .from('substitucions')
+    .select(`
+      id, data,
+      horari_setmanal:horari_setmanal_id(
+        docent_id, docent:docent_id(nom),
+        franja:franja_id(hora_inici, hora_fi),
+        grup:grup_id(nom)
+      ),
+      absencia:absencia_id(docent:docent_id(nom))
+    `)
+    .in('id', params.substitucioIds)
+    .eq('substitut_id', docentId)
+  if (!files || files.length !== params.substitucioIds.length) {
+    return { ok: false, error: 'Aquesta substitució ja no és teva' }
+  }
+
+  const { error } = await supabase.rpc('rebutjar_substitucions', {
+    p_ids: params.substitucioIds,
+    p_motiu: params.motiu?.trim() || null,
+  })
+  if (error) return { ok: false, error: error.message }
+
+  // Avisa l'equip directiu de l'etapa de qui és absent (i els càrrecs sense etapa)
+  const fs = files as any[]
+  const absentId = fs[0].horari_setmanal?.docent_id as string | undefined
+  const { data: etapes } = absentId
+    ? await supabase.from('docent_etapes').select('etapa_id').eq('docent_id', absentId)
+    : { data: [] as { etapa_id: string }[] }
+  const etapaId = etapes?.[0]?.etapa_id
+  const { data: gestors } = await supabase
+    .from('docent_rols')
+    .select('docent:docent_id(nom, email)')
+    .eq('rol', 'equip_directiu')
+    .or(etapaId ? `etapa_id.eq.${etapaId},etapa_id.is.null` : 'etapa_id.is.null')
+  const { data: jo } = await supabase.from('docents').select('nom').eq('id', docentId).single()
+
+  const inicis = fs.map(f => f.horari_setmanal?.franja?.hora_inici ?? '').sort()
+  const fins = fs.map(f => f.horari_setmanal?.franja?.hora_fi ?? '').sort()
+  const jaAvisats = new Set<string>()
+  for (const g of (gestors ?? []) as any[]) {
+    if (!g.docent?.email || jaAvisats.has(g.docent.email)) continue
+    jaAvisats.add(g.docent.email)
+    enviarAvisRenuncia({
+      emailGestor: g.docent.email,
+      nomGestor: g.docent.nom,
+      nomSubstitut: jo?.nom ?? 'Un/a docent',
+      nomDocentAbsent: fs[0].absencia?.docent?.nom ?? fs[0].horari_setmanal?.docent?.nom ?? '',
+      data: fs[0].data,
+      horaInici: inicis[0] ?? '',
+      horaFi: fins[fins.length - 1] ?? '',
+      grup: fs[0].horari_setmanal?.grup?.nom,
+      motiu: params.motiu?.trim() || null,
+      substitucioId: fs[0].id,
+    }).catch(console.error)
+  }
 
   return { ok: true }
 }

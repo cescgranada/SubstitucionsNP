@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { confirmarBloc, actualitzarFeinaSubstitut, marcarSenseSubstitucio } from '@/lib/actions/substitucions'
+import { confirmarBloc, actualitzarFeinaSubstitut, marcarSenseSubstitucio, rebutjarSubstitucio } from '@/lib/actions/substitucions'
 import { nomAbsent } from '@/lib/substitucions-blocs'
 import { MOTIUS, TIPUS_HORARI, ESTAT_SUBSTITUCIO as TEXT_ESTAT } from '@/lib/etiquetes'
 
@@ -39,6 +39,8 @@ interface Props {
   docentActualId: string
   esGestor: boolean
   esDocentAbsent: boolean
+  /** Docents que han renunciat a aquest bloc (només per a l'equip directiu) */
+  rebutjos: { nom: string; motiu: string | null }[]
 }
 
 function hora(h: string) {
@@ -52,6 +54,7 @@ export default function SubstitucioDetall({
   docentActualId,
   esGestor,
   esDocentAbsent,
+  rebutjos,
 }: Props) {
   const router = useRouter()
 
@@ -105,6 +108,28 @@ export default function SubstitucioDetall({
     setLoading(true)
     setErrorMsg('')
     const result = await marcarSenseSubstitucio(bloc.ids)
+    if (!result.ok) {
+      setErrorMsg(result.error ?? 'Error inesperat')
+      setLoading(false)
+      return
+    }
+    router.push('/substitucions')
+    router.refresh()
+  }
+
+  // "No la puc fer": només franges meves, vigents i d'avui en endavant
+  const [renunciant, setRenunciant] = useState(false)
+  const [motiuRenuncia, setMotiuRenuncia] = useState('')
+  const idsMeus = bloc.franges.filter(f => f.substitutId === docentActualId).map(f => f.id)
+  const potRenunciar =
+    idsMeus.length > 0 &&
+    ['proposta_ia', 'confirmada'].includes(substitucio.estat) &&
+    substitucio.data >= new Date().toISOString().slice(0, 10)
+
+  const handleRenunciar = async () => {
+    setLoading(true)
+    setErrorMsg('')
+    const result = await rebutjarSubstitucio({ substitucioIds: idsMeus, motiu: motiuRenuncia })
     if (!result.ok) {
       setErrorMsg(result.error ?? 'Error inesperat')
       setLoading(false)
@@ -280,9 +305,68 @@ export default function SubstitucioDetall({
         )}
       </div>
 
+      {/* El substitut pot renunciar-hi */}
+      {potRenunciar && (
+        <div className="card space-y-3">
+          {!renunciant ? (
+            <button
+              onClick={() => setRenunciant(true)}
+              className="text-sm font-medium w-full text-center"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              No la puc fer
+            </button>
+          ) : (
+            <>
+              <p className="text-sm" style={{ color: 'var(--color-text)' }}>
+                L&apos;equip directiu rebrà un avís i hi assignarà algú altre.
+              </p>
+              <textarea
+                rows={2}
+                value={motiuRenuncia}
+                onChange={(e) => setMotiuRenuncia(e.target.value)}
+                placeholder="Motiu (opcional)"
+                style={{ minHeight: 'auto', resize: 'none' }}
+              />
+              {errorMsg && (
+                <div className="rounded-lg px-3 py-2 text-sm" style={{ backgroundColor: '#FEE2E2', color: '#991B1B' }}>
+                  {errorMsg}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setRenunciant(false); setErrorMsg('') }}
+                  className="btn-secondary flex-1 text-sm"
+                  style={{ padding: '8px 16px', minHeight: '36px' }}
+                >
+                  Cancel·lar
+                </button>
+                <button
+                  onClick={handleRenunciar}
+                  disabled={loading}
+                  className="btn-primary flex-1 text-sm"
+                  style={{ padding: '8px 16px', minHeight: '36px' }}
+                >
+                  {loading ? 'Enviant...' : 'No la puc fer'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Gestió: assignar substitut */}
       {esGestor && substitucio.estat !== 'eliminada' && (
         <div className="card space-y-4">
+          {rebutjos.length > 0 && (
+            <div className="rounded-lg px-3 py-2 text-sm" style={{ backgroundColor: '#FEF3C7', color: '#92400E' }}>
+              {rebutjos.map((r, i) => (
+                <p key={i}>
+                  <strong>{r.nom}</strong> ha indicat que no la pot fer{r.motiu ? `: ${r.motiu}` : '.'}
+                </p>
+              ))}
+            </div>
+          )}
           <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
             {['pendent', 'proposta_ia'].includes(substitucio.estat) ? 'Assignar substitut/a' : 'Canviar substitut/a'}
           </h2>

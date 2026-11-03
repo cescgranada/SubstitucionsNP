@@ -16,7 +16,7 @@ function esConfigurat(): boolean {
 
 // ─── Plantilles HTML ──────────────────────────────────────────────
 
-function htmlBase(contingut: string): string {
+export function htmlBase(contingut: string): string {
   return `
 <!DOCTYPE html>
 <html lang="ca">
@@ -390,4 +390,165 @@ export async function enviarNotificacioAbsenciaComunicadaPerAltre(params: {
     subject: `${params.nomComunicador} t'ha comunicat una absència`,
     html: htmlBase(contingut),
   })
+}
+
+// ─── Resum de la vespra i renúncies ───────────────────────────────
+
+export type CorreuPreparat = { to: string; subject: string; html: string }
+
+function esc(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** Adreça de l'app per als enllaços dels correus (cap enllaç si no se sap). */
+export function urlApp(): string | null {
+  const url = process.env.NEXT_PUBLIC_APP_URL
+    ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null)
+  return url ? url.replace(/\/$/, '') : null
+}
+
+function enllac(text: string, camí: string): string {
+  const base = urlApp()
+  return base ? `<p><a href="${base}${camí}">${text}</a></p>` : ''
+}
+
+const dataLlarga = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('ca-ES', {
+  weekday: 'long', day: 'numeric', month: 'long',
+})
+
+export type BlocResum = {
+  horaInici: string
+  horaFi: string
+  grup?: string | null
+  materia?: string | null
+  aula?: string | null
+  nomAbsent: string
+  /** La proposta encara no l'ha confirmada l'equip directiu */
+  proposta: boolean
+  feina?: string | null
+  /** Camí de la fitxa de la substitució */
+  camí: string
+}
+
+/**
+ * Correu de la vespra per a qui ha de substituir l'endemà: tots els seus
+ * blocs en un sol missatge, amb la feina deixada i l'avís que, si no pot,
+ * ho pot indicar a la fitxa amb "No la puc fer".
+ */
+export function correuResumSubstitut(params: {
+  email: string
+  nom: string
+  data: string
+  blocs: BlocResum[]
+}): CorreuPreparat {
+  const files = params.blocs.map(b => `
+    <div class="info-box">
+      <div class="info-row"><span class="info-label">Hora</span><span class="info-value">${b.horaInici.slice(0, 5)} – ${b.horaFi.slice(0, 5)}${b.proposta ? ' (pendent de confirmar)' : ''}</span></div>
+      <div class="info-row"><span class="info-label">Substituïu a</span><span class="info-value">${esc(b.nomAbsent)}</span></div>
+      ${b.grup ? `<div class="info-row"><span class="info-label">Grup</span><span class="info-value">${esc(b.grup)}</span></div>` : ''}
+      ${b.materia ? `<div class="info-row"><span class="info-label">Matèria</span><span class="info-value">${esc(b.materia)}</span></div>` : ''}
+      ${b.aula ? `<div class="info-row"><span class="info-label">Aula</span><span class="info-value">${esc(b.aula)}</span></div>` : ''}
+    </div>
+    ${b.feina ? `<div class="feina-box">${esc(b.feina)}</div>` : '<p><em>Encara no s\'ha deixat feina.</em></p>'}
+    ${enllac('Veure la fitxa', b.camí)}`).join('')
+
+  const n = params.blocs.length
+  const contingut = `
+    <p>Hola, <strong>${esc(params.nom)}</strong>!</p>
+    <p>Demà, ${dataLlarga(params.data)}, tens ${n === 1 ? 'una substitució' : `${n} substitucions`}:</p>
+    ${files}
+    <p>Si no pots fer-ne alguna, entra a la fitxa i prem <strong>No la puc fer</strong> perquè l'equip directiu hi busqui algú altre.</p>
+  `
+  return {
+    to: params.email,
+    subject: `Demà tens ${n === 1 ? 'una substitució' : `${n} substitucions`} — ${dataLlarga(params.data)}`,
+    html: htmlBase(contingut),
+  }
+}
+
+/** Resum per a l'equip directiu: què queda per decidir l'endemà. */
+export function correuResumGestio(params: {
+  email: string
+  nom: string
+  data: string
+  senseSubstitut: number
+  perConfirmar: number
+  confirmats: number
+}): CorreuPreparat {
+  const { senseSubstitut, perConfirmar, confirmats } = params
+  const contingut = `
+    <p>Hola, <strong>${esc(params.nom)}</strong>!</p>
+    <p>Així està el dia de demà, ${dataLlarga(params.data)}:</p>
+    <div class="info-box">
+      <div class="info-row"><span class="info-label">Sense substitut</span><span class="info-value">${senseSubstitut}</span></div>
+      <div class="info-row"><span class="info-label">Proposats, per confirmar</span><span class="info-value">${perConfirmar}</span></div>
+      <div class="info-row"><span class="info-label">Confirmats</span><span class="info-value">${confirmats}</span></div>
+    </div>
+    <p>${senseSubstitut + perConfirmar > 0
+      ? 'Encara queden substitucions per tancar.'
+      : 'Tot el dia de demà està cobert.'}</p>
+    ${enllac('Obrir el full del dia', `/substitucions/full?data=${params.data}`)}
+  `
+  return {
+    to: params.email,
+    subject: senseSubstitut + perConfirmar > 0
+      ? `Demà: ${senseSubstitut + perConfirmar} substitucions per tancar`
+      : 'Demà: totes les substitucions cobertes',
+    html: htmlBase(contingut),
+  }
+}
+
+/** Avís a l'equip directiu que un substitut ha renunciat a un bloc. */
+export async function enviarAvisRenuncia(params: {
+  emailGestor: string
+  nomGestor: string
+  nomSubstitut: string
+  nomDocentAbsent: string
+  data: string
+  horaInici: string
+  horaFi: string
+  grup?: string | null
+  motiu?: string | null
+  substitucioId: string
+}): Promise<void> {
+  if (!esConfigurat()) {
+    console.log('[email] Resend no configurat, saltant notificació a', params.emailGestor)
+    return
+  }
+  const contingut = `
+    <p>Hola, <strong>${esc(params.nomGestor)}</strong>!</p>
+    <p><strong>${esc(params.nomSubstitut)}</strong> ha indicat que no pot fer aquesta substitució, que torna a quedar sense substitut:</p>
+    <div class="info-box">
+      <div class="info-row"><span class="info-label">Data</span><span class="info-value">${dataLlarga(params.data)}</span></div>
+      <div class="info-row"><span class="info-label">Hora</span><span class="info-value">${params.horaInici.slice(0, 5)} – ${params.horaFi.slice(0, 5)}</span></div>
+      <div class="info-row"><span class="info-label">Substituïa a</span><span class="info-value">${esc(params.nomDocentAbsent)}</span></div>
+      ${params.grup ? `<div class="info-row"><span class="info-label">Grup</span><span class="info-value">${esc(params.grup)}</span></div>` : ''}
+      ${params.motiu ? `<div class="info-row"><span class="info-label">Motiu</span><span class="info-value">${esc(params.motiu)}</span></div>` : ''}
+    </div>
+    <p>Cal assignar-hi algú altre.</p>
+    ${enllac('Assignar un substitut', `/substitucions/${params.substitucioId}`)}
+  `
+  await resend.emails.send({
+    from: FROM,
+    to: params.emailGestor,
+    subject: `${params.nomSubstitut} no pot fer una substitució — ${dataLlarga(params.data)}`,
+    html: htmlBase(contingut),
+  })
+}
+
+/** Envia correus ja preparats en lots (el límit de Resend és de 100 per lot). */
+export async function enviarLot(correus: CorreuPreparat[]): Promise<{ enviats: number; errors: number }> {
+  if (correus.length === 0) return { enviats: 0, errors: 0 }
+  if (!esConfigurat()) {
+    console.log('[email] Resend no configurat, saltant', correus.length, 'correus')
+    return { enviats: 0, errors: 0 }
+  }
+  let enviats = 0
+  let errors = 0
+  for (let i = 0; i < correus.length; i += 100) {
+    const lot = correus.slice(i, i + 100)
+    const { error } = await resend.batch.send(lot.map(c => ({ from: FROM, ...c })))
+    if (error) { errors += lot.length; console.error('[email] lot fallit:', error) } else enviats += lot.length
+  }
+  return { enviats, errors }
 }

@@ -173,10 +173,30 @@ export default async function SubstitucioPage({ params }: { params: Promise<{ id
       .sort((a, b) => a.cobertures - b.cobertures || a.nom.localeCompare(b.nom))
   }
 
+  // Qui hi ha renunciat abans (només ho veu l'equip directiu)
+  let rebutjos: { nom: string; motiu: string | null }[] = []
+  if (esGestor) {
+    const { data } = await supabase
+      .from('substitucions_rebutjos')
+      .select('motiu, docent:docent_id(nom)')
+      .in('substitucio_id', bloc.ids)
+      .order('created_at')
+    const vistos = new Set<string>()
+    rebutjos = ((data ?? []) as any[])
+      .map(r => ({ nom: (Array.isArray(r.docent) ? r.docent[0] : r.docent)?.nom ?? '', motiu: r.motiu as string | null }))
+      .filter(r => {
+        const clau = `${r.nom}|${r.motiu ?? ''}`
+        if (!r.nom || vistos.has(clau)) return false
+        vistos.add(clau)
+        return true
+      })
+  }
+
   return (
     <SubstitucioDetall
       substitucio={substitucio}
       bloc={bloc}
+      rebutjos={rebutjos}
       docents={docents}
       docentActualId={docent.id}
       esGestor={!!esGestor}
