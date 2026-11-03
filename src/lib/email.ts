@@ -6,12 +6,66 @@
  */
 
 import { Resend } from 'resend'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.RESEND_FROM ?? 'SubsCoop <noreply@noupatufet.coop>'
 
 function esConfigurat(): boolean {
   return !!process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== 're_xxxx'
+}
+
+// ─── Període de proves ────────────────────────────────────────────
+
+/**
+ * Mentre l'app és en proves, els correus només arriben a l'equip directiu.
+ * Per enviar-los també als docents cal posar CORREUS_A_DOCENTS=si a Vercel.
+ * Si no es pot comprovar qui és de l'equip directiu, no s'envia res.
+ */
+const CORREUS_A_DOCENTS = process.env.CORREUS_A_DOCENTS === 'si'
+
+let cacheEquip: { emails: Set<string>; fins: number } | null = null
+
+async function emailsEquipDirectiu(): Promise<Set<string>> {
+  if (cacheEquip && cacheEquip.fins > Date.now()) return cacheEquip.emails
+  const { data, error } = await createAdminClient()
+    .from('docent_rols')
+    .select('docent:docent_id(email)')
+    .eq('rol', 'equip_directiu')
+  if (error) throw new Error(error.message)
+  const emails = new Set(
+    ((data ?? []) as any[])
+      .map(r => (Array.isArray(r.docent) ? r.docent[0] : r.docent)?.email?.toLowerCase())
+      .filter(Boolean) as string[]
+  )
+  cacheEquip = { emails, fins: Date.now() + 60_000 }
+  return emails
+}
+
+/** Destinataris permesos ara mateix: tothom, o només l'equip directiu en proves. */
+async function permesos(destinataris: string[]): Promise<Set<string>> {
+  if (CORREUS_A_DOCENTS) return new Set(destinataris.map(d => d.toLowerCase()))
+  try {
+    const equip = await emailsEquipDirectiu()
+    return new Set(destinataris.map(d => d.toLowerCase()).filter(d => equip.has(d)))
+  } catch (e) {
+    console.error('[email] no es pot saber qui és de l\'equip directiu; no s\'envia:', e)
+    return new Set()
+  }
+}
+
+type MissatgeResend = Parameters<typeof resend.emails.send>[0]
+
+/** Envia un correu, tret que el destinatari no sigui permès en el període de proves. */
+async function enviarCorreu(missatge: MissatgeResend): Promise<void> {
+  const to = ([] as string[]).concat(missatge.to as string | string[])
+  const ok = await permesos(to)
+  const destinataris = to.filter(d => ok.has(d.toLowerCase()))
+  if (destinataris.length === 0) {
+    console.log('[email] període de proves: no s\'envia a', to.join(', '))
+    return
+  }
+  await resend.emails.send({ ...missatge, to: destinataris } as MissatgeResend)
 }
 
 // ─── Plantilles HTML ──────────────────────────────────────────────
@@ -105,7 +159,7 @@ export async function enviarNotificacioSubstitut(params: {
     <p>Pots veure el detall a SubsCoop.</p>
   `
 
-  await resend.emails.send({
+  await enviarCorreu({
     from: FROM,
     to: params.emailSubstitut,
     subject: `Substitució assignada — ${dataFormatada}`,
@@ -151,7 +205,7 @@ export async function enviarNotificacioSubstitucioAnullada(params: {
     <p>No cal que facis cap acció. El teu horari torna a ser el normal per a aquesta franja.</p>
   `
 
-  await resend.emails.send({
+  await enviarCorreu({
     from: FROM,
     to: params.emailSubstitut,
     subject: `Substitució cancel·lada — ${dataFormatada}`,
@@ -207,7 +261,7 @@ export async function enviarNotificacioAbsenciaGestio(params: {
       : 'Accedeix a SubsCoop per revisar i confirmar les substitucions proposades.'}</p>
   `
 
-  await resend.emails.send({
+  await enviarCorreu({
     from: FROM,
     to: params.emailGestor,
     subject: pendent
@@ -255,7 +309,7 @@ export async function enviarNotificacioResolucioSortida(params: {
     ${aprovada ? '<p>Les substitucions dels grups participants ja han estat actualitzades automàticament.</p>' : '<p>Si tens dubtes, contacta amb la coordinació.</p>'}
   `
 
-  await resend.emails.send({
+  await enviarCorreu({
     from: FROM,
     to: params.emailProposador,
     subject: `Sortida ${aprovada ? 'aprovada' : 'rebutjada'} — ${params.descripcio}`,
@@ -304,7 +358,7 @@ export async function enviarNotificacioNovaSortida(params: {
     <p>Accedeix a SubsCoop per aprovar o rebutjar la proposta.</p>
   `
 
-  await resend.emails.send({
+  await enviarCorreu({
     from: FROM,
     to: params.emailGestor,
     subject: `Nova sortida pendent d'aprovació — ${params.descripcio}`,
@@ -339,7 +393,7 @@ export async function enviarNotificacioRessolucioAbsencia(params: {
     ${aprovada ? '<p>Les substitucions corresponents ja han estat generades automàticament.</p>' : '<p>Si tens dubtes, contacta amb el cap de personal.</p>'}
   `
 
-  await resend.emails.send({
+  await enviarCorreu({
     from: FROM,
     to: params.emailDocent,
     subject: `Absència ${aprovada ? 'aprovada' : 'rebutjada'} — ${dataFormatada}`,
@@ -384,7 +438,7 @@ export async function enviarNotificacioAbsenciaComunicadaPerAltre(params: {
     <p>Entra a SubsCoop i deixa la feina que han de fer els alumnes a cada classe, perquè la persona que et substitueixi ho sàpiga.</p>
   `
 
-  await resend.emails.send({
+  await enviarCorreu({
     from: FROM,
     to: params.emailDocent,
     subject: `${params.nomComunicador} t'ha comunicat una absència`,
@@ -528,7 +582,7 @@ export async function enviarAvisRenuncia(params: {
     <p>Cal assignar-hi algú altre.</p>
     ${enllac('Assignar un substitut', `/substitucions/${params.substitucioId}`)}
   `
-  await resend.emails.send({
+  await enviarCorreu({
     from: FROM,
     to: params.emailGestor,
     subject: `${params.nomSubstitut} no pot fer una substitució — ${dataLlarga(params.data)}`,
@@ -543,10 +597,15 @@ export async function enviarLot(correus: CorreuPreparat[]): Promise<{ enviats: n
     console.log('[email] Resend no configurat, saltant', correus.length, 'correus')
     return { enviats: 0, errors: 0 }
   }
+  const ok = await permesos(correus.map(c => c.to))
+  const permesosAra = correus.filter(c => ok.has(c.to.toLowerCase()))
+  if (permesosAra.length < correus.length) {
+    console.log('[email] període de proves: no s\'envia a', correus.length - permesosAra.length, 'docents')
+  }
   let enviats = 0
   let errors = 0
-  for (let i = 0; i < correus.length; i += 100) {
-    const lot = correus.slice(i, i + 100)
+  for (let i = 0; i < permesosAra.length; i += 100) {
+    const lot = permesosAra.slice(i, i + 100)
     const { error } = await resend.batch.send(lot.map(c => ({ from: FROM, ...c })))
     if (error) { errors += lot.length; console.error('[email] lot fallit:', error) } else enviats += lot.length
   }
