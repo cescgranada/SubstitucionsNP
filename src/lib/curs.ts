@@ -31,6 +31,32 @@ export async function diesNoLectius(
   return new Map((data ?? []).map(d => [d.data as string, (d.descripcio as string | null) ?? 'Dia sense classe']))
 }
 
+/** Dies laborables (dl–dv) entre dues dates, en format YYYY-MM-DD. */
+export function diesLaborables(from: string, to: string): string[] {
+  const dies: string[] = []
+  const curr = new Date(from + 'T12:00:00')
+  const end = new Date(to + 'T12:00:00')
+  while (curr <= end) {
+    const dia = curr.getDay()
+    if (dia >= 1 && dia <= 5) {
+      dies.push(curr.toISOString().split('T')[0])
+    }
+    curr.setDate(curr.getDate() + 1)
+  }
+  return dies
+}
+
+/**
+ * Dies laborables d'un interval en què hi ha classe: treu els festius, les
+ * vacances i els dies no lectius del calendari escolar.
+ */
+export async function diesLectius(supabase: Supabase, from: string, to: string): Promise<string[]> {
+  const laborables = diesLaborables(from, to)
+  if (laborables.length === 0) return laborables
+  const noLectius = await diesNoLectius(supabase, laborables[0], laborables[laborables.length - 1])
+  return laborables.filter(d => !noLectius.has(d))
+}
+
 /**
  * Franges de 30 min que ha cobert cada docent en el curs de `data`
  * (confirmades o proposades, sense la codocència). docentId -> franges.
