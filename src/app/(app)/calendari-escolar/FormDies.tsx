@@ -27,7 +27,14 @@ export function FormAfegirDies() {
     const r = await afegirDiesSenseClasse({ des, fins: fins || des, tipus, descripcio })
     setLoading(false)
     if (!r.ok) { setMissatge({ text: r.error ?? 'Error inesperat', error: true }); return }
-    setMissatge({ text: `${r.afegits} ${r.afegits === 1 ? 'dia afegit' : 'dies afegits'}`, error: false })
+    const afectades = r.substitucionsAfectades ?? 0
+    setMissatge({
+      text: `${r.afegits} ${r.afegits === 1 ? 'dia afegit' : 'dies afegits'}`
+        + (afectades > 0
+          ? `. Atenció: hi ha ${afectades} ${afectades === 1 ? 'substitució ja generada' : 'substitucions ja generades'} en aquests dies; cal marcar-les com a "No cal substitut/a" a Gestió → Substitucions.`
+          : ''),
+      error: afectades > 0,
+    })
     setDes(''); setFins(''); setDescripcio('')
     router.refresh()
   }

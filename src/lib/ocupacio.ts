@@ -4,8 +4,8 @@ type Supabase = Awaited<ReturnType<typeof createClient>>
 
 /**
  * Docents que, en una data i un tram horari, no poden substituir ningú:
- * perquè acompanyen una sortida aprovada o perquè ja cobreixen una altra
- * substitució. Retorna docentId -> motiu per mostrar-lo a la fitxa.
+ * perquè acompanyen una sortida aprovada, perquè ja cobreixen una altra
+ * substitució o perquè són absents aquell dia. Retorna docentId -> motiu per mostrar-lo a la fitxa.
  */
 export async function docentsOcupats(
   supabase: Supabase,
@@ -43,6 +43,15 @@ export async function docentsOcupats(
     if (exclosos.has(s.id)) continue
     if (s.hora_inici < horaFi && s.hora_fi > horaInici && !ocupats.has(s.substitut_id)) {
       ocupats.set(s.substitut_id, s.absent_nom ? `Substitueix ${s.absent_nom}` : 'Ja fa una altra substitució')
+    }
+  }
+
+  // Docents que aquell dia són absents (aprovada o pendent) en el tram.
+  // Funció SECURITY DEFINER pel mateix motiu: només retorna docent i hores.
+  const { data: absents } = await supabase.rpc('docents_absents_dia', { p_data: data })
+  for (const a of (absents ?? []) as { docent_id: string; hora_inici: string; hora_fi: string }[]) {
+    if (a.hora_inici < horaFi && a.hora_fi > horaInici && !ocupats.has(a.docent_id)) {
+      ocupats.set(a.docent_id, 'Absent aquest dia')
     }
   }
 

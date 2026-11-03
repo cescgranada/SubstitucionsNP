@@ -783,7 +783,7 @@ export async function reassignarSubstitucionsPendentsDia(
     .from('substitucions')
     .select(`
       id,
-      horari:horari_setmanal_id(franja_id),
+      horari:horari_setmanal_id(franja_id, franja:franja_id(hora_inici, hora_fi)),
       absencia:absencia_id(docent_id)
     `)
     .eq('data', sortida.data)
@@ -793,9 +793,12 @@ export async function reassignarSubstitucionsPendentsDia(
 
   let reassignades = 0
   const cobertures = await coberturesCurs(supabase, sortida.data)
+  // Substituts ja decidits en aquesta passada, per franja
+  const ocupatsPerFranja = new Map<string, Set<string>>()
 
   for (const sub of pendents as any[]) {
     const franjaId = (sub.horari as any)?.franja_id
+    const franja = Array.isArray(sub.horari?.franja) ? sub.horari.franja[0] : sub.horari?.franja
     const docentAbsentId = (sub.absencia as any)?.docent_id
     if (!franjaId || !docentAbsentId) continue
 
@@ -807,11 +810,20 @@ export async function reassignarSubstitucionsPendentsDia(
     const etapaId = etapes?.[0]?.etapa_id
     if (!etapaId) continue
 
+    const exclosos = new Set<string>(
+      franja
+        ? (await docentsOcupats(supabase, { data: sortida.data, horaInici: franja.hora_inici, horaFi: franja.hora_fi })).keys()
+        : []
+    )
+    for (const id of ocupatsPerFranja.get(franjaId) ?? []) exclosos.add(id)
+
     const proposta = await proposaSubstitut(
-      supabase, franjaId, diaNum, sortida.data, etapaId, docentAbsentId, new Set(), null, cobertures
+      supabase, franjaId, diaNum, sortida.data, etapaId, docentAbsentId, exclosos, null, cobertures
     )
 
     if (proposta.substitutId) {
+      if (!ocupatsPerFranja.has(franjaId)) ocupatsPerFranja.set(franjaId, new Set())
+      ocupatsPerFranja.get(franjaId)!.add(proposta.substitutId)
       const { error } = await supabase
         .from('substitucions')
         .update({
@@ -859,6 +871,8 @@ export async function generarSubstitucionsAcompanyants(
   )
   const diaNum = diaSetmana(sortida.data)
   const cobertures = await coberturesCurs(supabase, sortida.data)
+  // Substituts ja decidits en aquesta passada, per franja (entre tots els acompanyants)
+  const ocupatsPerFranja = new Map<string, Set<string>>()
 
   for (const acomp of acompanyants) {
     const docentId = acomp.docent_id
@@ -922,11 +936,22 @@ export async function generarSubstitucionsAcompanyants(
       let motiuProposta: string | null = null
 
       if (etapaId && h.franja?.id) {
+        const exclosos = new Set<string>(
+          (await docentsOcupats(supabase, {
+            data: sortida.data, horaInici: h.franja.hora_inici, horaFi: h.franja.hora_fi,
+          })).keys()
+        )
+        for (const id of ocupatsPerFranja.get(h.franja.id) ?? []) exclosos.add(id)
+
         const proposta = await proposaSubstitut(
-          supabase, h.franja.id, diaNum, sortida.data, etapaId, docentId, new Set(), null, cobertures
+          supabase, h.franja.id, diaNum, sortida.data, etapaId, docentId, exclosos, null, cobertures
         )
         substitutId = proposta.substitutId
         motiuProposta = proposta.motiu
+        if (substitutId) {
+          if (!ocupatsPerFranja.has(h.franja.id)) ocupatsPerFranja.set(h.franja.id, new Set())
+          ocupatsPerFranja.get(h.franja.id)!.add(substitutId)
+        }
       }
 
       await supabase.from('substitucions').insert({

@@ -28,7 +28,7 @@ export async function afegirDiesSenseClasse(p: {
   fins: string
   tipus: string
   descripcio: string
-}): Promise<{ ok: boolean; error?: string; afegits?: number }> {
+}): Promise<{ ok: boolean; error?: string; afegits?: number; substitucionsAfectades?: number }> {
   const supabase = await createClient()
   const noPermis = await comprovaGestor(supabase)
   if (noPermis) return { ok: false, error: noPermis }
@@ -45,9 +45,16 @@ export async function afegirDiesSenseClasse(p: {
     .upsert(dies.map(data => ({ data, tipus: p.tipus, descripcio })), { onConflict: 'data' })
   if (error) return { ok: false, error: error.message }
 
+  // Les substitucions ja generades per a aquests dies no s'esborren soles: s'avisa
+  const { count } = await supabase
+    .from('substitucions')
+    .select('id', { count: 'exact', head: true })
+    .in('data', dies)
+    .in('estat', ['pendent', 'proposta_ia', 'confirmada'])
+
   revalidatePath('/calendari-escolar')
   revalidatePath('/calendari')
-  return { ok: true, afegits: dies.length }
+  return { ok: true, afegits: dies.length, substitucionsAfectades: count ?? 0 }
 }
 
 /** Torna a fer lectiu un dia. Les substitucions que no es van generar no es creen soles: cal tornar-les a generar. */
