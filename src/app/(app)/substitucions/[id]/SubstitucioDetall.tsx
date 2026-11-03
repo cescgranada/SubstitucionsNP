@@ -26,6 +26,8 @@ export type DocentOpcio = {
   nom: string
   /** Té guàrdia/permanència/HNL a totes les franges i és de l'etapa */
   prioritari: boolean
+  /** Franges de 30 min cobertes aquest curs */
+  cobertures: number
   /** Per franja: què fa i si no pot substituir (sortida o altra substitució) */
   franges: Record<string, { text: string; bloquejat: boolean; avis: boolean }>
 }
@@ -75,6 +77,7 @@ export default function SubstitucioDetall({
     const bloquejat = franges.some(f => f.bloquejat)
     const avis = franges.some(f => f.avis)
     const text = Array.from(new Set(franges.map(f => f.text))).join(' · ')
+      + ` · ${d.cobertures} ${d.cobertures === 1 ? 'franja coberta' : 'franges cobertes'} aquest curs`
     return { bloquejat, avis, text }
   }
 

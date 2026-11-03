@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { enviarNotificacioSubstitut, enviarNotificacioSubstitucioAnullada } from '@/lib/email'
 import { esEquipDirectiu } from '@/lib/roles'
+import { docentsOcupats } from '@/lib/ocupacio'
 
 type Supabase = Awaited<ReturnType<typeof createClient>>
 
@@ -90,6 +91,30 @@ export async function confirmarBloc(params: {
     const actual = (actuals as any[]).find(x => x.id === a.substitucioId)
     if (actual?.absencia?.docent_id === a.substitutId) {
       return { ok: false, error: 'El docent absent no pot ser el seu propi substitut' }
+    }
+  }
+
+  // Revalidació al servidor: entre que es va obrir la fitxa i es confirma, el
+  // substitut pot haver quedat de sortida o assignat a una altra classe.
+  const { data: tramsRaw } = await supabase
+    .from('substitucions')
+    .select('id, data, horari_setmanal:horari_setmanal_id(franja:franja_id(hora_inici, hora_fi))')
+    .in('id', ids)
+  const ocupatsPerTram = new Map<string, Map<string, string>>()
+  for (const t of (tramsRaw ?? []) as any[]) {
+    const f = t.horari_setmanal?.franja
+    if (!f) continue
+    const clau = `${t.data}|${f.hora_inici}|${f.hora_fi}`
+    if (!ocupatsPerTram.has(clau)) {
+      ocupatsPerTram.set(clau, await docentsOcupats(supabase, {
+        data: t.data, horaInici: f.hora_inici, horaFi: f.hora_fi, excloureSubstitucioIds: ids,
+      }))
+    }
+    const motiu = ocupatsPerTram.get(clau)!.get(
+      params.assignacions.find(a => a.substitucioId === t.id)?.substitutId ?? ''
+    )
+    if (motiu) {
+      return { ok: false, error: `Aquest docent ja no està disponible en aquesta franja: ${motiu}` }
     }
   }
 

@@ -21,6 +21,8 @@ interface Props {
   absencies: any[]
   sortides: any[]
   substitucions: any[]
+  /** Dies laborables sense classe (festius, vacances…): data -> descripció */
+  noLectius: Record<string, string>
   mesAnteriorParam: string
   mesSeguentParam: string
 }
@@ -37,7 +39,7 @@ function diesEntre(dataIni: string, dataFi: string): string[] {
 }
 
 export default function CalendariUnificat({
-  any, mes, etapes, docentEtapes, grups, absencies, sortides, substitucions,
+  any, mes, etapes, docentEtapes, grups, absencies, sortides, substitucions, noLectius,
   mesAnteriorParam, mesSeguentParam,
 }: Props) {
   const router = useRouter()
@@ -238,6 +240,7 @@ export default function CalendariUnificat({
           const subsDia = substitucionsPerDia.get(data) ?? []
           const subsPendents = subsDia.filter((b: any) => b.primera.estat === 'pendent' || b.primera.estat === 'proposta_ia').length
           const esAvui = data === avui
+          const sensClasse = noLectius[data]
           const teContingut = absDia.length + sortDia.length + subsDia.length > 0
           const capItems = 2
 
@@ -248,7 +251,7 @@ export default function CalendariUnificat({
               className="rounded-lg p-1.5 text-left flex flex-col"
               style={{
                 minHeight: '76px',
-                backgroundColor: esAvui ? 'var(--color-primary-light)' : 'white',
+                backgroundColor: esAvui ? 'var(--color-primary-light)' : sensClasse ? '#F3F4F6' : 'white',
                 border: `1px solid ${esAvui ? 'var(--color-primary)' : 'var(--color-border)'}`,
                 cursor: teContingut ? 'pointer' : 'default',
               }}
@@ -260,6 +263,15 @@ export default function CalendariUnificat({
                 {dia}
               </span>
               <div className="mt-1 space-y-0.5 flex-1">
+                {sensClasse && (
+                  <span
+                    className="block text-[11px] leading-tight italic truncate"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                    title={sensClasse}
+                  >
+                    {sensClasse}
+                  </span>
+                )}
                 {absDia.slice(0, capItems).map((a: any, idx: number) => (
                   <span
                     key={`a${a.id}-${idx}`}
