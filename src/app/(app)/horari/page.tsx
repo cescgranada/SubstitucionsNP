@@ -1,6 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { esEquipDirectiu } from '@/lib/roles'
+import Link from 'next/link'
 import SelectorDocent from './SelectorDocent'
+import EditorHorari, { type ValorsEditor } from './EditorHorari'
+import { franjesDocent } from '@/lib/horari'
 
 const DIES = ['Dilluns', 'Dimarts', 'Dimecres', 'Dijous', 'Divendres']
 
@@ -33,15 +36,22 @@ interface EntradaHorari {
   tipus_parella: string | null
   franja: { hora_inici: string; hora_fi: string } | null
   grup: { nom: string } | null
+  grup_id: string | null
+  parella_docent_id: string | null
   parella_docent: { nom: string } | null
+}
+
+/** En mode edició cada casella és un enllaç; si no, es mostra tal qual. */
+function Cela({ href, children }: { href: string | null; children: React.ReactNode }) {
+  return href ? <Link href={href} className="block">{children}</Link> : <>{children}</>
 }
 
 export default async function HorariPage({
   searchParams,
 }: {
-  searchParams: Promise<{ docent?: string }>
+  searchParams: Promise<{ docent?: string; edita?: string; dia?: string; inici?: string }>
 }) {
-  const { docent: docentParam } = await searchParams
+  const { docent: docentParam, edita: editaParam, dia: diaParam, inici: iniciParam } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -72,7 +82,7 @@ export default async function HorariPage({
   const { data: horariRaw } = await supabase
     .from('horari_setmanal')
     .select(`
-      id, dia_setmana, tipus, materia, aula, tipus_parella,
+      id, dia_setmana, tipus, materia, aula, tipus_parella, grup_id, parella_docent_id,
       franja:franja_id(hora_inici, hora_fi, ordre),
       grup:grup_id(nom),
       parella_docent:parella_docent_id(nom)
@@ -87,7 +97,10 @@ export default async function HorariPage({
     parella_docent: Array.isArray(h.parella_docent) ? h.parella_docent[0] ?? null : h.parella_docent,
   })) as EntradaHorari[]
 
-  if (horari.length === 0) {
+  // Edició d'horaris: només l'equip directiu
+  const edita = esGestor && editaParam === '1'
+
+  if (horari.length === 0 && !edita) {
     return (
       <div className="space-y-4">
         <h1 className="text-xl font-semibold" style={{ color: 'var(--color-primary)' }}>
@@ -110,6 +123,13 @@ export default async function HorariPage({
     const clau = `${h.franja.hora_inici}-${h.franja.hora_fi}`
     if (!franjaPerClau.has(clau)) franjaPerClau.set(clau, h.franja)
   }
+  // En mode edició es mostren totes les franges del docent, també les buides,
+  // per poder-hi afegir activitat.
+  const frangesEdicio = edita ? await franjesDocent(supabase, docentVist.id) : []
+  if (edita) {
+    franjaPerClau.clear()
+    for (const f of frangesEdicio) franjaPerClau.set(`${f.hora_inici}-${f.hora_fi}`, f)
+  }
   const files = Array.from(franjaPerClau.entries())
     .sort(([, a], [, b]) => a.hora_inici.localeCompare(b.hora_inici))
 
@@ -122,13 +142,80 @@ export default async function HorariPage({
     graella.get(clau)!.set(h.dia_setmana, h)
   }
 
+  // Edició: enllaç de cada casella i valors inicials de l'editor (el tram
+  // sencer de franges seguides amb la mateixa activitat)
+  const hrefCela = (dia: number, franja: { hora_inici: string }) =>
+    `/horari?docent=${docentVist.id}&edita=1&dia=${dia}&inici=${franja.hora_inici.slice(0, 5)}`
+  const assinatura = (h: EntradaHorari | undefined) =>
+    h ? [h.tipus, h.grup_id, h.materia, h.aula, h.parella_docent_id, h.tipus_parella].join('|') : ''
+
+  let inicial: ValorsEditor | null = null
+  let grups: { id: string; nom: string }[] = []
+  if (edita && diaParam && iniciParam) {
+    const dia = Number(diaParam)
+    const ordenades = files.map(([clau, f]) => ({ clau, f }))
+    const idx = ordenades.findIndex(o => o.f.hora_inici.slice(0, 5) === iniciParam)
+    if (idx >= 0 && dia >= 1 && dia <= 5) {
+      const entrada = (i: number) => graella.get(ordenades[i].clau)?.get(dia)
+      const base = entrada(idx)
+      let a = idx
+      let b = idx
+      if (base) {
+        while (a > 0 && assinatura(entrada(a - 1)) === assinatura(base)) a--
+        while (b < ordenades.length - 1 && assinatura(entrada(b + 1)) === assinatura(base)) b++
+      }
+      inicial = {
+        dia,
+        horaInici: ordenades[a].f.hora_inici.slice(0, 5),
+        horaFi: ordenades[b].f.hora_fi.slice(0, 5),
+        tipus: base?.tipus ?? 'classe',
+        grupId: base?.grup_id ?? '',
+        materia: base?.materia ?? '',
+        aula: base?.aula ?? '',
+        parellaId: base?.parella_docent_id ?? '',
+        tipusParella: base?.tipus_parella ?? '',
+        existeix: !!base,
+      }
+      const { data: gr } = await supabase.from('grups').select('id, nom').order('nom')
+      grups = (gr ?? []) as { id: string; nom: string }[]
+    }
+  }
+
   return (
     <div className="space-y-5">
-      <h1 className="text-xl font-semibold" style={{ color: 'var(--color-primary)' }}>
-        {veigAltre ? `Horari de ${docentVist.nom}` : 'El meu horari'}
-      </h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold" style={{ color: 'var(--color-primary)' }}>
+          {veigAltre ? `Horari de ${docentVist.nom}` : 'El meu horari'}
+        </h1>
+        {esGestor && (
+          <Link
+            href={edita ? `/horari?docent=${docentVist.id}` : `/horari?docent=${docentVist.id}&edita=1`}
+            className="text-sm font-medium"
+            style={{ color: 'var(--color-accent)' }}
+          >
+            {edita ? "Acabar d'editar" : 'Editar horari'}
+          </Link>
+        )}
+      </div>
 
       {esGestor && <SelectorDocent docents={docentsLlista} seleccionat={docentVist.id} propiId={docent.id} />}
+
+      {edita && !inicial && (
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+          Toca una casella per afegir o canviar-hi l&apos;activitat.
+        </p>
+      )}
+      {edita && inicial && (
+        <EditorHorari
+          key={`${inicial.dia}-${inicial.horaInici}`}
+          docentId={docentVist.id}
+          docentNom={docentVist.nom}
+          franges={files.map(([, f]) => f)}
+          grups={grups}
+          docents={docentsLlista.filter(d => d.id !== docentVist.id)}
+          inicial={inicial}
+        />
+      )}
 
       {/* Vista mòbil: un dia per secció, amb totes les franges (buides en blanc) */}
       <div className="lg:hidden space-y-4">
@@ -144,21 +231,23 @@ export default async function HorariPage({
                   const h = graella.get(clau)?.get(diaNum)
                   if (!h) {
                     return (
-                      <div
-                        key={clau}
-                        className="flex items-center gap-3 rounded-lg px-3 py-2.5 border-l-4"
-                        style={{ backgroundColor: 'white', borderColor: 'var(--color-border)' }}
-                      >
-                        <div className="text-xs font-mono w-20 flex-shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
-                          {franja.hora_inici.slice(0, 5)}–{franja.hora_fi.slice(0, 5)}
+                      <Cela key={clau} href={edita ? hrefCela(diaNum, franja) : null}>
+                        <div
+                          className="flex items-center gap-3 rounded-lg px-3 py-2.5 border-l-4"
+                          style={{ backgroundColor: 'white', borderColor: 'var(--color-border)' }}
+                        >
+                          <div className="text-xs font-mono w-20 flex-shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
+                            {franja.hora_inici.slice(0, 5)}–{franja.hora_fi.slice(0, 5)}
+                          </div>
+                          {edita && <span className="text-xs" style={{ color: 'var(--color-accent)' }}>+ Afegir</span>}
                         </div>
-                      </div>
+                      </Cela>
                     )
                   }
                   const colors = COLORS_TIPUS[h.tipus] ?? COLORS_TIPUS.disponible
                   return (
+                    <Cela key={clau} href={edita ? hrefCela(diaNum, franja) : null}>
                     <div
-                      key={clau}
                       className="flex items-start gap-3 rounded-lg px-3 py-2.5 border-l-4"
                       style={{ backgroundColor: colors.bg, borderColor: colors.border }}
                     >
@@ -181,6 +270,7 @@ export default async function HorariPage({
                         )}
                       </div>
                     </div>
+                    </Cela>
                   )
                 })}
               </div>
@@ -228,7 +318,13 @@ export default async function HorariPage({
                         key={diaNum}
                         className="rounded-lg"
                         style={{ backgroundColor: 'white', border: '1px solid var(--color-border)', height: '64px' }}
-                      />
+                      >
+                        {edita && (
+                          <Link href={hrefCela(diaNum, franja)} className="flex items-center justify-center h-full text-xs" style={{ color: 'var(--color-accent)' }}>
+                            +
+                          </Link>
+                        )}
+                      </td>
                     )
                   }
                   const colors = COLORS_TIPUS[h.tipus] ?? COLORS_TIPUS.disponible
@@ -238,16 +334,18 @@ export default async function HorariPage({
                       className="rounded-lg p-2 border-l-4 text-xs align-top"
                       style={{ backgroundColor: colors.bg, borderColor: colors.border }}
                     >
-                      <div className="font-medium" style={{ color: colors.text }}>
-                        {NOMS_TIPUS[h.tipus]}
-                      </div>
-                      {h.grup?.nom && <div style={{ color: colors.text, opacity: 0.8 }}>{h.grup.nom}</div>}
-                      {h.materia && <div style={{ color: colors.text, opacity: 0.7 }}>{h.materia}</div>}
-                      {h.parella_docent?.nom && (
-                        <div style={{ color: colors.text, opacity: 0.6 }}>
-                          amb {h.parella_docent.nom.split(' ')[0]}
+                      <Cela href={edita ? hrefCela(diaNum, franja) : null}>
+                        <div className="font-medium" style={{ color: colors.text }}>
+                          {NOMS_TIPUS[h.tipus]}
                         </div>
-                      )}
+                        {h.grup?.nom && <div style={{ color: colors.text, opacity: 0.8 }}>{h.grup.nom}</div>}
+                        {h.materia && <div style={{ color: colors.text, opacity: 0.7 }}>{h.materia}</div>}
+                        {h.parella_docent?.nom && (
+                          <div style={{ color: colors.text, opacity: 0.6 }}>
+                            amb {h.parella_docent.nom.split(' ')[0]}
+                          </div>
+                        )}
+                      </Cela>
                     </td>
                   )
                 })}
