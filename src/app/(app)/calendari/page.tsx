@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import CalendariUnificat from './CalendariUnificat'
+import { diesNoLectius } from '@/lib/curs'
 
 function parseMes(mesParam: string | undefined): { any: number; mes: number } {
   if (mesParam && /^\d{4}-\d{2}$/.test(mesParam)) {
@@ -73,6 +74,8 @@ export default async function CalendariPage({
       .lte('data', dataFi),
   ])
 
+  const noLectius = Object.fromEntries(await diesNoLectius(supabase, dataInici, dataFi))
+
   const mesAnterior = mes === 1 ? `${any - 1}-12` : `${any}-${String(mes - 1).padStart(2, '0')}`
   const mesSeguent = mes === 12 ? `${any + 1}-01` : `${any}-${String(mes + 1).padStart(2, '0')}`
 
@@ -86,6 +89,7 @@ export default async function CalendariPage({
       absencies={absencies ?? []}
       sortides={sortides ?? []}
       substitucions={substitucions ?? []}
+      noLectius={noLectius}
       mesAnteriorParam={mesAnterior}
       mesSeguentParam={mesSeguent}
     />

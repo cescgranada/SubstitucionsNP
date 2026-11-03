@@ -32,24 +32,17 @@ export async function docentsOcupats(
   }
 
   // Substitucions ja assignades o proposades en aquest tram
-  const { data: subs } = await supabase
-    .from('substitucions')
-    .select(`
-      id, substitut_id,
-      horari_setmanal:horari_setmanal_id(docent:docent_id(nom), franja:franja_id(hora_inici, hora_fi)),
-      absencia:absencia_id(docent:docent_id(nom))
-    `)
-    .eq('data', data)
-    .in('estat', ['confirmada', 'proposta_ia'])
-    .not('substitut_id', 'is', null)
+  // Funció SECURITY DEFINER: un docent que comunica la seva absència no veu,
+  // per RLS, les substitucions dels companys, però n'ha de saber l'ocupació.
+  const { data: subs } = await supabase.rpc('substitucions_assignades_dia', { p_data: data })
 
   const exclosos = new Set(params.excloureSubstitucioIds ?? [])
-  for (const s of (subs ?? []) as any[]) {
+  for (const s of (subs ?? []) as {
+    id: string; substitut_id: string; hora_inici: string; hora_fi: string; absent_nom: string | null
+  }[]) {
     if (exclosos.has(s.id)) continue
-    const f = s.horari_setmanal?.franja
-    if (f && f.hora_inici < horaFi && f.hora_fi > horaInici && !ocupats.has(s.substitut_id)) {
-      const absent = s.absencia?.docent?.nom ?? s.horari_setmanal?.docent?.nom
-      ocupats.set(s.substitut_id, absent ? `Substitueix ${absent}` : 'Ja fa una altra substitució')
+    if (s.hora_inici < horaFi && s.hora_fi > horaInici && !ocupats.has(s.substitut_id)) {
+      ocupats.set(s.substitut_id, s.absent_nom ? `Substitueix ${s.absent_nom}` : 'Ja fa una altra substitució')
     }
   }
 

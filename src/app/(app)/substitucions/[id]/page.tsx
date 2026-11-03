@@ -4,6 +4,7 @@ import SubstitucioDetall, { type BlocInfo, type DocentOpcio } from './Substituci
 import { esEquipDirectiu } from '@/lib/roles'
 import { agruparBlocs } from '@/lib/substitucions-blocs'
 import { docentsOcupats } from '@/lib/ocupacio'
+import { coberturesCurs } from '@/lib/curs'
 import { TIPUS_HORARI as TEXT_TIPUS } from '@/lib/etiquetes'
 
 const TIPUS_PRIORITARIS = ['guardia', 'permanencia', 'hnl', 'disponible']
@@ -111,6 +112,7 @@ export default async function SubstitucioPage({ params }: { params: Promise<{ id
       supabase.from('docent_etapes').select('etapa_id').eq('docent_id', absentId),
     ])
     const idsPas = new Set((rolsPas ?? []).map((r: any) => r.docent_id))
+    const cobertures = await coberturesCurs(supabase, substitucio.data)
 
     const etapaIds = (etapesAbsent ?? []).map((e: any) => e.etapa_id)
     const { data: membresEtapa } = etapaIds.length > 0
@@ -165,8 +167,10 @@ export default async function SubstitucioPage({ params }: { params: Promise<{ id
             prioritari = false
           }
         }
-        return { id: d.id, nom: d.nom, prioritari, franges }
+        return { id: d.id, nom: d.nom, prioritari, cobertures: cobertures.get(d.id) ?? 0, franges }
       })
+      // Primer qui n'ha cobert menys, per repartir les substitucions
+      .sort((a, b) => a.cobertures - b.cobertures || a.nom.localeCompare(b.nom))
   }
 
   return (

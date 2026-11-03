@@ -10,6 +10,7 @@ import {
 } from '@/lib/email'
 import { esEquipDirectiu } from '@/lib/roles'
 import { docentsOcupats } from '@/lib/ocupacio'
+import { coberturesCurs, diesNoLectius } from '@/lib/curs'
 
 /**
  * Retorna els dies laborables (dl–dv) entre dues dates, en format YYYY-MM-DD.
@@ -26,6 +27,21 @@ function diesLaborables(from: string, to: string): string[] {
     curr.setDate(curr.getDate() + 1)
   }
   return dies
+}
+
+/**
+ * Dies laborables d'un interval en què hi ha classe: treu els festius, les
+ * vacances i els dies no lectius del calendari escolar.
+ */
+async function diesLectius(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  from: string,
+  to: string
+): Promise<string[]> {
+  const laborables = diesLaborables(from, to)
+  if (laborables.length === 0) return laborables
+  const noLectius = await diesNoLectius(supabase, laborables[0], laborables[laborables.length - 1])
+  return laborables.filter(d => !noLectius.has(d))
 }
 
 /**
@@ -50,7 +66,9 @@ async function proposaSubstitut(
   /** Docents que no poden substituir (sortida o una altra substitució en la franja) */
   exclosos: Set<string> = new Set(),
   /** Substitut de la franja anterior del mateix bloc: se'l prefereix per no partir el bloc */
-  preferit: string | null = null
+  preferit: string | null = null,
+  /** Franges cobertes aquest curs per docent; s'hi suma cada proposta per repartir equitativament */
+  cobertures: Map<string, number> = new Map()
 ): Promise<{ substitutId: string | null; motiu: string | null }> {
   const { data: docentEtapa } = await supabase
     .from('docent_etapes')
@@ -63,7 +81,19 @@ async function proposaSubstitut(
   const docentIdsEtapa = docentEtapa.map(d => d.docent_id).filter(id => !exclosos.has(id))
   if (docentIdsEtapa.length === 0) return { substitutId: null, motiu: null }
 
-  const triar = (ids: string[]) => (preferit && ids.includes(preferit) ? preferit : ids[0])
+  // Dins del mateix nivell de prioritat tria qui n'ha cobert menys aquest curs;
+  // si el de la franja anterior del bloc és candidat, es manté per no partir-lo.
+  const triar = (ids: string[]) =>
+    preferit && ids.includes(preferit)
+      ? preferit
+      : ids.reduce((millor, id) => ((cobertures.get(id) ?? 0) < (cobertures.get(millor) ?? 0) ? id : millor))
+
+  // Motiu de la proposta amb el recompte previ, i suma la franja al comptador
+  const resultat = (id: string, motiu: string) => {
+    const fetes = cobertures.get(id) ?? 0
+    cobertures.set(id, fetes + 1)
+    return { substitutId: id, motiu: `${motiu} (${fetes} ${fetes === 1 ? 'franja coberta' : 'franges cobertes'} aquest curs)` }
+  }
 
   // Prioritat 0: docents alliberats per sortida aprovada en aquesta franja
   const { data: sortidesDelDia } = await supabase
@@ -95,10 +125,7 @@ async function proposaSubstitut(
         .map(d => d.docent_id)
         .filter(id => !acompanyantIds.has(id))
       if (idsAlliberats.length > 0) {
-        return {
-          substitutId: triar(idsAlliberats),
-          motiu: 'Docent alliberat per sortida escolar en aquesta franja',
-        }
+        return resultat(triar(idsAlliberats), 'Docent alliberat per sortida escolar en aquesta franja')
       }
     }
   }
@@ -114,10 +141,10 @@ async function proposaSubstitut(
       .in('docent_id', docentIdsEtapa)
 
     if (candidats && candidats.length > 0) {
-      return {
-        substitutId: triar(candidats.map(c => c.docent_id)),
-        motiu: `Docent amb ${tipus === 'guardia' ? 'guàrdia' : tipus === 'permanencia' ? 'permanència' : tipus === 'hnl' ? 'HNL' : 'hora lliure'} en aquesta franja`,
-      }
+      return resultat(
+        triar(candidats.map(c => c.docent_id)),
+        `Docent amb ${tipus === 'guardia' ? 'guàrdia' : tipus === 'permanencia' ? 'permanència' : tipus === 'hnl' ? 'HNL' : 'hora lliure'} en aquesta franja`
+      )
     }
   }
 
@@ -287,7 +314,7 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
   if (!absencia) return { ok: false, error: 'Absència no trobada' }
   if (absencia.estat !== 'aprovada') return { ok: false, error: "L'absència no està aprovada" }
 
-  const dies = diesLaborables(absencia.data, absencia.data_fi ?? absencia.data)
+  const dies = await diesLectius(supabase, absencia.data, absencia.data_fi ?? absencia.data)
   if (dies.length === 0) return { ok: true }
 
   // Evita duplicats: comprova quins dies ja tenen substitucions generades
@@ -324,6 +351,7 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
 
   let totalCreades = 0
   const substitutIdsNotificats = new Set<string>()
+  const cobertures = await coberturesCurs(supabase, diesAProcesar[0])
 
   for (const data of diesAProcesar) {
     const diaNum = diaSetmana(data)
@@ -392,7 +420,7 @@ export async function generarSubstitucions(absenciaId: string): Promise<{ ok: bo
         const preferit = anterior && anterior.horaFi === h.franja.hora_inici ? anterior.substitutId : null
 
         const proposta = await proposaSubstitut(
-          supabase, h.franja.id, diaNum, data, etapaId, absencia.docent_id, exclosos, preferit
+          supabase, h.franja.id, diaNum, data, etapaId, absencia.docent_id, exclosos, preferit, cobertures
         )
         substitutId = proposta.substitutId
         motiuProposta = proposta.motiu
@@ -520,7 +548,7 @@ export async function classesAfectadesPreview(params: {
     docentIdObjectiu = params.docentId
   }
 
-  const dies = diesLaborables(params.data, params.dataFi ?? params.data)
+  const dies = await diesLectius(supabase, params.data, params.dataFi ?? params.data)
   if (dies.length === 0 || dies.length > 31) return []
 
   const { data: horari } = await supabase
@@ -796,6 +824,7 @@ export async function reassignarSubstitucionsPendentsDia(
   if (!pendents || pendents.length === 0) return { ok: true, reassignades: 0 }
 
   let reassignades = 0
+  const cobertures = await coberturesCurs(supabase, sortida.data)
 
   for (const sub of pendents as any[]) {
     const franjaId = (sub.horari as any)?.franja_id
@@ -811,7 +840,7 @@ export async function reassignarSubstitucionsPendentsDia(
     if (!etapaId) continue
 
     const proposta = await proposaSubstitut(
-      supabase, franjaId, diaNum, sortida.data, etapaId, docentAbsentId
+      supabase, franjaId, diaNum, sortida.data, etapaId, docentAbsentId, new Set(), null, cobertures
     )
 
     if (proposta.substitutId) {
@@ -861,6 +890,7 @@ export async function generarSubstitucionsAcompanyants(
     (sortida.sortida_grups as any[]).map((sg: any) => sg.grup_id)
   )
   const diaNum = diaSetmana(sortida.data)
+  const cobertures = await coberturesCurs(supabase, sortida.data)
 
   for (const acomp of acompanyants) {
     const docentId = acomp.docent_id
@@ -925,7 +955,7 @@ export async function generarSubstitucionsAcompanyants(
 
       if (etapaId && h.franja?.id) {
         const proposta = await proposaSubstitut(
-          supabase, h.franja.id, diaNum, sortida.data, etapaId, docentId
+          supabase, h.franja.id, diaNum, sortida.data, etapaId, docentId, new Set(), null, cobertures
         )
         substitutId = proposta.substitutId
         motiuProposta = proposta.motiu
